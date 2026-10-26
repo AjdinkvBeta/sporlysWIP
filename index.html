@@ -664,19 +664,87 @@ function anchorNow(){
 }
 const accept = (r, K) => r && r.ncc > .45 && r.cov > .15 && quadOK(K.corners.map(c => applyH(r.H, c)), K.corners);
 
-let lastTick = 0, busy = false, fewWarn = false;
+/*GYRO-START*/
+/* ---------- Bevægelsessensor: lærer selv, hvordan telefonens drejning flytter billedet ---------- */
+function calNew(){ return {Sgg: [0, 0, 0], Sx: [0, 0], Sy: [0, 0], Stt: 0, Szz: 0, Szr: 0, Srr: 0, n: 0}; }
+// g = [drejning om x, om y, om z] i radianer; d = billedets bevægelse {tx, ty, rot} i normaliserede koordinater
+function calAdd(C, g, d){
+  const l = .97;
+  C.Sgg = C.Sgg.map(v => v * l); C.Sx = C.Sx.map(v => v * l); C.Sy = C.Sy.map(v => v * l);
+  C.Stt *= l; C.Szz *= l; C.Szr *= l; C.Srr *= l;
+  C.Sgg[0] += g[0]*g[0]; C.Sgg[1] += g[0]*g[1]; C.Sgg[2] += g[1]*g[1];
+  C.Sx[0] += g[0]*d.tx; C.Sx[1] += g[1]*d.tx; C.Sy[0] += g[0]*d.ty; C.Sy[1] += g[1]*d.ty;
+  C.Stt += d.tx*d.tx + d.ty*d.ty; C.Szz += g[2]*g[2]; C.Szr += g[2]*d.rot; C.Srr += d.rot*d.rot; C.n++;
+}
+function calModel(C){
+  const [a, b, c] = C.Sgg, det = a*c - b*b;
+  if (C.n < 15 || a + c < 2e-4 || det < .05 * a * c) return null;
+  const ax = [(c*C.Sx[0] - b*C.Sx[1]) / det, (-b*C.Sx[0] + a*C.Sx[1]) / det];
+  const ay = [(c*C.Sy[0] - b*C.Sy[1]) / det, (-b*C.Sy[0] + a*C.Sy[1]) / det];
+  const res = C.Stt - (ax[0]*C.Sx[0] + ax[1]*C.Sx[1]) - (ay[0]*C.Sy[0] + ay[1]*C.Sy[1]);
+  const r2 = 1 - res / Math.max(1e-12, C.Stt);
+  const kz = C.Szz > 1e-5 ? C.Szr / C.Szz : 0, r2z = C.Srr > 1e-9 ? kz * C.Szr / C.Srr : 0;
+  return r2 > .5 ? {ax, ay, kz: r2z > .4 ? kz : 0, r2} : null;
+}
+// Billedbevægelse (similaritet) forudsagt ud fra en drejning g
+function calPredict(M, g){
+  const tx = M.ax[0]*g[0] + M.ax[1]*g[1], ty = M.ay[0]*g[0] + M.ay[1]*g[1], r = M.kz * g[2], c = Math.cos(r), s = Math.sin(r);
+  return [c, -s, tx, s, c, ty, 0, 0, 1];
+}
+// Observeret bevægelse fra én homografi til den næste
+function motionOf(Hold, Hnew){
+  const inv = m3inv(Hold); if (!inv) return null;
+  const R = m3mul(Hnew, inv), [tx, ty] = applyH(R, [0, 0]);
+  return {tx, ty, rot: Math.atan2(R[3], R[0])};
+}
+/*GYRO-END*/
+
+const GY = {on: false, buf: [], lat: 50}, CAL = calNew();
+function gyroStart(){
+  if (GY.on) return;
+  const go = () => { if (GY.on) return; GY.on = true; window.addEventListener('devicemotion', onMotion); };
+  try {
+    if (typeof DeviceMotionEvent === 'undefined') return;
+    if (typeof DeviceMotionEvent.requestPermission === 'function') DeviceMotionEvent.requestPermission().then(r => { if (r === 'granted') go(); }).catch(() => {});
+    else go();
+  } catch (e) {}
+}
+function onMotion(e){
+  const r = e.rotationRate; if (!r || r.alpha == null || r.beta == null) return;
+  const k = Math.PI / 180;
+  GY.buf.push({t: performance.now(), x: r.beta * k, y: r.gamma * k, z: r.alpha * k});
+  if (GY.buf.length > 600) GY.buf.splice(0, 300);
+}
+// Samlet drejning mellem to tidspunkter (forskudt med kameraets forsinkelse)
+function gyroDelta(t0, t1){
+  t0 -= GY.lat; t1 -= GY.lat;
+  const b = GY.buf; let gx = 0, gy = 0, gz = 0, n = 0;
+  for (let i = 1; i < b.length; i++) {
+    const s = Math.max(t0, b[i-1].t), e = Math.min(t1, b[i].t); if (e <= s) continue;
+    const dt = (e - s) / 1000; gx += b[i].x * dt; gy += b[i].y * dt; gz += b[i].z * dt; n++;
+  }
+  return n ? [gx, gy, gz] : null;
+}
+window.addEventListener('orientationchange', () => Object.assign(CAL, calNew()));
+
+let lastTick = 0, busy = false, fewWarn = false, gyroMode = false;
 function loop(ts){
   requestAnimationFrame(loop);
   if (!(S.mode === 'camera' && S.tracking && camOK && A.T) || busy) return;
-  if (ts - lastTick < 50) return; lastTick = ts; busy = true;
+  if (ts - lastTick < 50) return;
+  const prevTick = lastTick; lastTick = ts; busy = true;
   try {
     const f = grabGray(), T = A.T;
     if (f && f.w === T.w && f.h === T.h) {
-      let r = T.lost < 8 ? alignDense(T.key.tmpl, f.g, f.w, f.h, T.H) : null;
-      // Helt tabt: let efter tegningen i hele billedet (seneste nøglebillede, derefter det første)
+      // Sensoren giver et bud på, hvor billedet er flyttet hen siden sidst
+      const g = GY.on ? gyroDelta(prevTick, ts) : null, M = calModel(CAL);
+      const P = g && M ? calPredict(M, g) : null;
+      const Hguess = P ? m3mul(P, T.H) : T.H;
+      const keyBefore = T.key, Hbefore = T.H, wasOk = T.lost === 0;
+      let r = T.lost < (M ? 30 : 8) ? alignDense(T.key.tmpl, f.g, f.w, f.h, Hguess) : null;
+      // Helt tabt: let efter tegningen i hele billedet (nøglebillederne på skift)
       if (!accept(r, T.key) && T.lost >= 4 && ts - T.relocAt > 300) {
         T.relocAt = ts; r = null;
-        // Ét nøglebillede pr. forsøg, på skift (nyeste først)
         const K = T.keys[T.rr++ % T.keys.length];
         // Prøv også lidt andre zoom-niveauer omkring bud fra søgningen
         search: for (const H0 of fmCandidates(K.fm, f.g, f.w, f.h)) {
@@ -687,24 +755,32 @@ function loop(ts){
           }
         }
       }
+      let show = false, snap = false;
       if (accept(r, T.key)) {
-        const snap = T.lost > 3;
-        T.H = r.H; T.lost = 0; T.good++;
-        const cur = T.key.corners.map(c => applyH(T.H, c));
+        // Lær sensorens sammenhæng med billedet ud fra to gode billeder i træk
+        if (g && wasOk && T.key === keyBefore) { const d = motionOf(Hbefore, r.H); if (d && Math.abs(d.tx) < .5 && Math.abs(d.ty) < .5) calAdd(CAL, g, d); }
+        snap = T.lost > 3 && !gyroMode;
+        T.H = r.H; T.lost = 0; T.good++; gyroMode = false; show = true;
         // Lær løbende: når billedet er rent (ingen hånd), tages et nyt nøglebillede med dine nye streger
         if (T.good > 12 && r.ncc > .93 && r.cov > .9 && ts - T.refreshed > 2500) {
+          const cur = T.key.corners.map(c => applyH(T.H, c));
           T.key = makeKey(f, cur); T.H = [1,0,0,0,1,0,0,0,1]; T.refreshed = ts; T.good = 0;
-          // Gem de seneste nøglebilleder og altid det første
           T.keys = [T.key, ...T.keys.slice(0, 3).filter((k, i) => i < 2), T.keys[T.keys.length - 1]].filter((k, i, a) => a.indexOf(k) === i);
         }
-        const m = viewMap(), target = cur.map(c => fromNorm(c, m, T.w, T.h));
+      } else {
+        T.lost++; T.good = 0;
+        // Billedet kan ikke bruges lige nu (hånd, uskarpt): følg med sensoren i op til 1,5 sekund
+        if (P && T.lost < 30) { T.H = Hguess; gyroMode = true; show = true; } else gyroMode = false;
+      }
+      if (show) {
+        const m = viewMap(), target = T.key.corners.map(c => fromNorm(applyH(T.H, c), m, T.w, T.h));
         // Rolig udglatning: små rystelser dæmpes, store bevægelser følges straks
         A.sm = A.sm && !snap ? A.sm.map((p, i) => {
           const d = dist(p, target[i]), a = Math.min(1, Math.max(.25, d / 14));
           return [p[0] + (target[i][0] - p[0]) * a, p[1] + (target[i][1] - p[1]) * a];
         }) : target;
         applyTransform();
-      } else { T.lost++; T.good = 0; }
+      }
     }
   } catch (e) { if (A.T) A.T.lost++; }
   busy = false;
@@ -718,7 +794,7 @@ function setStatus(){
   st.hidden = !show; if (!show) return;
   const ok = A.T.lost < 4;
   st.classList.toggle('ok', ok && !fewWarn);
-  st.querySelector('span').textContent = !ok ? 'Leder efter din tegning…'
+  st.querySelector('span').textContent = gyroMode && !ok ? 'Følger med telefonens bevægelse…' : !ok ? 'Leder efter din tegning…'
     : fewWarn ? 'Fastgjort, men der er lidt at følge efter' : 'Fastgjort til papiret';
 }
 
@@ -760,6 +836,7 @@ function setMode(m){
 function setTracking(on){
   if (on) {
     if (!camOK) return;
+    gyroStart();
     const r = anchorNow();
     if (r === 'nocam') { showNotice('Kameraet er ikke klar endnu. Vent et øjeblik, og prøv igen.'); return; }
     fewWarn = r === 'few';
