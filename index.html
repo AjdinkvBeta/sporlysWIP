@@ -153,6 +153,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px}
           <div class="label">Valgt billede</div>
           <div class="chips" id="viewChips" role="group" aria-label="Visning af billedet">
             <button class="chip" id="vSteps" aria-pressed="false">Trin</button>
+            <button class="chip" id="pmSketch" aria-pressed="false">Skitse</button>
             <button class="chip" id="pmLines" aria-pressed="true">Streger</button>
             <button class="chip" id="pmPhoto" aria-pressed="false">Foto</button>
           </div>
@@ -289,7 +290,7 @@ function lessonSVG(id, upto, color, thumb){
 
 function renderOverlay(){
   if (S.src === 'photo' && photo) {
-    const url = S.photoMode === 'lines' ? photoLines : photo.src;
+    const url = S.photoMode === 'photo' ? photo.src : photoLines;
     ovContent.innerHTML = `<img alt="" src="${url}">`;
   } else {
     if (!LESSONS[S.src]) { S.src = 'kat'; S.step = 0; }
@@ -419,7 +420,20 @@ function pyramid(g, w, h, levels){
   return P;
 }
 // Normaliserede koordinater pr. niveau: x' = (x - w/2) / (w/2)
-function buildTemplate(g, w, h){
+function inQuad(q, X, Y){
+  let sg = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i+1)%4], c = (b[0]-a[0])*(Y-a[1]) - (b[1]-a[1])*(X-a[0]);
+    if (!c) continue; const t = Math.sign(c); if (!sg) sg = t; else if (t !== sg) return false;
+  }
+  return true;
+}
+function growQuad(q, f){
+  const cx = (q[0][0]+q[1][0]+q[2][0]+q[3][0]) / 4, cy = (q[0][1]+q[1][1]+q[2][1]+q[3][1]) / 4;
+  return q.map(p => [cx + (p[0]-cx)*f, cy + (p[1]-cy)*f]);
+}
+// region: valgfri firkant (normaliserede koordinater); kun punkter indenfor bruges
+function buildTemplate(g, w, h, region){
   const P = pyramid(g, w, h, 3), levels = [];
   for (const L of P) {
     const {g: t, w: lw, h: lh} = L, s = lw / 2, cx = lw / 2, cy = lh / 2, mags = [];
@@ -433,18 +447,19 @@ function buildTemplate(g, w, h){
       if (mags[k] < thr) continue;
       const i = y*lw + x, gx = (t[i+1] - t[i-1]) / 2 * s, gy = (t[i+lw] - t[i-lw]) / 2 * s;
       const X = (x - cx) / s, Y = (y - cy) / s;
+      if (region && !inQuad(region, X, Y)) continue;
       pts.push({X, Y, T: t[i], sd: MODEL.sd(gx, gy, X, Y)});
     }
     // Højst ~5000 punkter pr. niveau
     const stride = Math.max(1, Math.ceil(pts.length / 5000));
-    levels.push({w: lw, h: lh, s, cx, cy, pts: stride > 1 ? pts.filter((_, i) => i % stride === 0) : pts});
+    levels.push({w: lw, h: lh, s, cx, cy, pts: stride > 1 ? pts.filter((_, i) => i % stride === 0) : pts, g: t});
   }
   return levels;
 }
 // Én niveaus robuste IC-LK; H er i normaliserede koordinater (skabelon -> billede)
 function alignLevel(L, img, H, iters){
   const {pts, s, cx, cy} = L, n = pts.length, res = new Float32Array(n), ok = new Uint8Array(n), Iw = new Float32Array(n);
-  let wts = null, stat = {inl: 0};
+  let wts = null, stat = {inl: 0}, nccNow = 0;
   for (let it = 0; it < iters; it++) {
     // Prøv billedet i de forudsagte positioner
     let cnt = 0;
@@ -461,6 +476,11 @@ function alignLevel(L, img, H, iters){
       const a = Math.abs(res[i]); absr.push(a); if (a < 15) good++;
     }
     absr.sort((a, b) => a - b);
+    // Samlet lighed (korrelation) mellem skabelon og billede
+    { let st = 0, si = 0, sti = 0, stt = 0, sii = 0, c = 0;
+      for (let i = 0; i < n; i++) if (ok[i]) { const T0 = pts[i].T, I0 = Iw[i]; st += T0; si += I0; sti += T0*I0; stt += T0*T0; sii += I0*I0; c++; }
+      const mt = st / c, mi = si / c, den = Math.sqrt(Math.max(1e-9, (stt/c - mt*mt) * (sii/c - mi*mi)));
+      nccNow = (sti/c - mt*mi) / den; }
     const sigma = Math.min(25, Math.max(2, 1.4826 * absr[absr.length >> 1])), k = 2 * sigma;
     if (!wts) wts = new Float32Array(n);
     const D = MODEL.n, M = Array.from({length: D}, () => new Array(D).fill(0)), b = new Array(D).fill(0);
@@ -478,11 +498,11 @@ function alignLevel(L, img, H, iters){
     const dp = solve(M, b); if (!dp) return null;
     const W = MODEL.W(dp), Wi = m3inv(W); if (!Wi) return null;
     H = m3mul(H, Wi); H = H.map(v => v / H[8]);
-    stat = {inl: good / cnt, cov: cnt / n};
+    stat = {inl: good / cnt, cov: cnt / n, ncc: nccNow};
     let step = 0; for (const d of dp) step += d*d;
     if (step < 1e-8) break;
   }
-  return {H, inl: stat.inl, cov: stat.cov};
+  return {H, inl: stat.inl, cov: stat.cov, ncc: stat.ncc};
 }
 function alignDense(tmpl, g, w, h, H0){
   const P = pyramid(g, w, h, 3);
@@ -493,6 +513,118 @@ function alignDense(tmpl, g, w, h, H0){
     H = r.H; last = r;
   }
   return last;
+}
+// Genfind tegningen, når sporet er helt tabt (virker i alle retninger, også på hovedet)
+/* ---------- Fourier-Mellin: find drejning, zoom og flytning mellem to billeder ---------- */
+const FN = 128;
+function fft1(re, im, inv){
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = (inv ? 2 : -2) * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const a = i + k, b = a + len / 2, tr = re[b]*cr - im[b]*ci, ti = re[b]*ci + im[b]*cr;
+        re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+        const nr = cr*wr - ci*wi; ci = cr*wi + ci*wr; cr = nr;
+      }
+    }
+  }
+  if (inv) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+}
+function fft2(re, im, inv){
+  const N = FN, rr = new Float64Array(N), ii = new Float64Array(N);
+  for (let y = 0; y < N; y++) { for (let x = 0; x < N; x++) { rr[x] = re[y*N+x]; ii[x] = im[y*N+x]; } fft1(rr, ii, inv); for (let x = 0; x < N; x++) { re[y*N+x] = rr[x]; im[y*N+x] = ii[x]; } }
+  for (let x = 0; x < N; x++) { for (let y = 0; y < N; y++) { rr[y] = re[y*N+x]; ii[y] = im[y*N+x]; } fft1(rr, ii, inv); for (let y = 0; y < N; y++) { re[y*N+x] = rr[y]; im[y*N+x] = ii[y]; } }
+}
+// Læg et billede (w×h) ind i et N×N-gitter, centreret, med Hann-vindue
+function toGrid(g, w, h){
+  const N = FN, k = N / Math.max(w, h), ox = (N - w*k) / 2, oy = (N - h*k) / 2, out = new Float64Array(N*N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const v = sampleG(g, w, h, (x - ox) / k, (y - oy) / k);
+    const wx = .5 - .5 * Math.cos(2 * Math.PI * (x + .5) / N), wy = .5 - .5 * Math.cos(2 * Math.PI * (y + .5) / N);
+    out[y*N + x] = v === v ? v * wx * wy : 0;
+  }
+  return {g: out, k, ox, oy};
+}
+function spectrum(grid){
+  const N = FN, re = Float64Array.from(grid), im = new Float64Array(N*N);
+  fft2(re, im, false);
+  return {re, im};
+}
+function logPolar(S){
+  // Højpasfiltreret amplitude, forskudt så nul-frekvens er i midten, i log-polære koordinater
+  const N = FN, mag = new Float64Array(N*N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const u = ((x + N/2) % N) - N/2, v = ((y + N/2) % N) - N/2;
+    const X = Math.cos(Math.PI * u / N) * Math.cos(Math.PI * v / N), hp = (1 - X) * (2 - X);
+    const i = y*N + x;
+    mag[((v + N/2) % N) * N + ((u + N/2) % N)] = Math.log(1 + Math.hypot(S.re[i], S.im[i])) * hp;
+  }
+  const lp = new Float64Array(N*N), rmax = N / 2 - 1, base = Math.log(rmax) / N;
+  for (let a = 0; a < N; a++) {
+    const th = a * Math.PI / N, c = Math.cos(th), s = Math.sin(th);
+    for (let r = 0; r < N; r++) {
+      const rad = Math.exp(r * base), x = N/2 + rad * c, y = N/2 + rad * s;
+      const xi = x | 0, yi = y | 0, fx = x - xi, fy = y - yi, i = yi*N + xi;
+      lp[a*N + r] = xi >= 0 && yi >= 0 && xi < N-1 && yi < N-1
+        ? mag[i]*(1-fx)*(1-fy) + mag[i+1]*fx*(1-fy) + mag[i+N]*(1-fx)*fy + mag[i+N+1]*fx*fy : 0;
+    }
+  }
+  return {lp, base};
+}
+// Fasekorrelation: returnerer forskydning (dx, dy) så b(x) ≈ a(x - d), og toppens styrke
+function phaseCorr(A, B){
+  const N = FN, re = new Float64Array(N*N), im = new Float64Array(N*N);
+  for (let i = 0; i < N*N; i++) {
+    const r = B.re[i]*A.re[i] + B.im[i]*A.im[i], m = B.im[i]*A.re[i] - B.re[i]*A.im[i], d = Math.hypot(r, m) + 1e-9;
+    re[i] = r / d; im[i] = m / d;
+  }
+  fft2(re, im, true);
+  let best = -1, bi = 0; for (let i = 0; i < N*N; i++) if (re[i] > best) { best = re[i]; bi = i; }
+  let dx = bi % N, dy = (bi / N) | 0; if (dx >= N/2) dx -= N; if (dy >= N/2) dy -= N;
+  return {dx, dy, peak: best};
+}
+function rotScaleGrid(grid, ang, sc){
+  const N = FN, out = new Float64Array(N*N), c = Math.cos(-ang) / sc, s = Math.sin(-ang) / sc;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const X = x - N/2, Y = y - N/2, u = c*X - s*Y + N/2, v = s*X + c*Y + N/2;
+    const ui = u | 0, vi = v | 0, fx = u - ui, fy = v - vi, i = vi*N + ui;
+    out[y*N + x] = ui >= 0 && vi >= 0 && ui < N-1 && vi < N-1
+      ? grid[i]*(1-fx)*(1-fy) + grid[i+1]*fx*(1-fy) + grid[i+N]*(1-fx)*fy + grid[i+N+1]*fx*fy : 0;
+  }
+  return out;
+}
+// Forbered nøglebilledets data én gang
+function fmPrepare(g, w, h){
+  const G = toGrid(g, w, h), S = spectrum(G.g), L = logPolar(S);
+  return {G, lpS: spectrum(L.lp), base: L.base, w, h};
+}
+// Kandidat-homografier (normaliserede koordinater) fra nøglebillede til nyt billede
+function fmCandidates(key, g, w, h){
+  const N = FN, G = toGrid(g, w, h), L = logPolar(spectrum(G.g));
+  const pc = phaseCorr(key.lpS, spectrum(L.lp));
+  const sc = Math.exp(-pc.dx * key.base), ang0 = pc.dy * Math.PI / N, out = [];
+  for (const ang of [ang0, ang0 + Math.PI]) {
+    const Tw = rotScaleGrid(key.G.g, ang, sc), t = phaseCorr(spectrum(Tw), spectrum(G.g));
+    // gitter: p' = sc·R·(p - c) + c + d ; omregn til normaliserede koordinater via 4 punkter
+    const c = Math.cos(ang) * sc, s = Math.sin(ang) * sc;
+    const src = [[-.5,-.5],[.5,-.5],[.5,.5],[-.5,.5]];
+    const dst = src.map(([X, Y]) => {
+      const px = X * key.w/2 + key.w/2, py = Y * key.w/2 + key.h/2;
+      const gx = px * key.G.k + key.G.ox - N/2, gy = py * key.G.k + key.G.oy - N/2;
+      const qx = c*gx - s*gy + N/2 + t.dx, qy = s*gx + c*gy + N/2 + t.dy;
+      const fx = (qx - G.ox) / G.k, fy = (qy - G.oy) / G.k;
+      return [(fx - w/2) / (w/2), (fy - h/2) / (w/2)];
+    });
+    const H = homography(src, dst);
+    if (H) out.push({H, peak: t.peak});
+  }
+  return out.sort((a, b) => b.peak - a.peak).map(o => o.H);
 }
 /*TRACK-END*/
 
@@ -518,13 +650,19 @@ function viewMap(){
 const toNorm = (p, m, w, h) => { const x = (p[0] - m.ox) / m.k, y = (p[1] - m.oy) / m.k; return [(x - w/2) / (w/2), (y - h/2) / (w/2)]; };
 const fromNorm = (p, m, w, h) => [(p[0] * (w/2) + w/2) * m.k + m.ox, (p[1] * (w/2) + h/2) * m.k + m.oy];
 
+function makeKey(f, corners){
+  let tmpl = buildTemplate(f.g, f.w, f.h, growQuad(corners, 1.6)), region = true;
+  if (tmpl[0].pts.length < 600 || tmpl[2].pts.length < 60) { tmpl = buildTemplate(f.g, f.w, f.h, null); region = false; }
+  return {tmpl, corners, region, fm: fmPrepare(f.g, f.w, f.h)};
+}
 function anchorNow(){
   const f = grabGray(); if (!f) return 'nocam';
-  const m = viewMap(), tmpl = buildTemplate(f.g, f.w, f.h);
-  A.T = {w: f.w, h: f.h, tmpl, H: [1,0,0,0,1,0,0,0,1], lost: 0, corners: freeCorners().map(p => toNorm(p, m, f.w, f.h))};
+  const m = viewMap(), corners = freeCorners().map(p => toNorm(p, m, f.w, f.h)), key = makeKey(f, corners);
+  A.T = {w: f.w, h: f.h, key, keys: [key], rr: 0, H: [1,0,0,0,1,0,0,0,1], lost: 0, good: 0, refreshed: performance.now(), relocAt: 0};
   A.sm = freeCorners();
-  return tmpl[0].pts.length < 400 ? 'few' : 'ok';
+  return key.tmpl[0].pts.length < 400 ? 'few' : 'ok';
 }
+const accept = (r, K) => r && r.ncc > .45 && r.cov > .15 && quadOK(K.corners.map(c => applyH(r.H, c)), K.corners);
 
 let lastTick = 0, busy = false, fewWarn = false;
 function loop(ts){
@@ -533,17 +671,41 @@ function loop(ts){
   if (ts - lastTick < 50) return; lastTick = ts; busy = true;
   try {
     const f = grabGray(), T = A.T;
-    const r = f && f.w === T.w && f.h === T.h ? alignDense(T.tmpl, f.g, f.w, f.h, T.H) : null;
-    if (r && r.inl > .4 && r.cov > .15 && quadOK(T.corners.map(c => applyH(r.H, c)), T.corners)) {
-      T.H = r.H; T.lost = 0;
-      const m = viewMap(), target = T.corners.map(c => fromNorm(applyH(T.H, c), m, T.w, T.h));
-      // Rolig udglatning: små rystelser dæmpes, store bevægelser følges straks
-      A.sm = A.sm ? A.sm.map((p, i) => {
-        const d = dist(p, target[i]), a = Math.min(1, Math.max(.25, d / 14));
-        return [p[0] + (target[i][0] - p[0]) * a, p[1] + (target[i][1] - p[1]) * a];
-      }) : target;
-      applyTransform();
-    } else T.lost++;
+    if (f && f.w === T.w && f.h === T.h) {
+      let r = T.lost < 8 ? alignDense(T.key.tmpl, f.g, f.w, f.h, T.H) : null;
+      // Helt tabt: let efter tegningen i hele billedet (seneste nøglebillede, derefter det første)
+      if (!accept(r, T.key) && T.lost >= 4 && ts - T.relocAt > 300) {
+        T.relocAt = ts; r = null;
+        // Ét nøglebillede pr. forsøg, på skift (nyeste først)
+        const K = T.keys[T.rr++ % T.keys.length];
+        // Prøv også lidt andre zoom-niveauer omkring bud fra søgningen
+        search: for (const H0 of fmCandidates(K.fm, f.g, f.w, f.h)) {
+          const [ccx, ccy] = applyH(H0, [0, 0]);
+          for (const z of [1, .87, 1.15, .76, 1.3]) {
+            const rr = alignDense(K.tmpl, f.g, f.w, f.h, m3mul([z, 0, ccx - z*ccx, 0, z, ccy - z*ccy, 0, 0, 1], H0));
+            if (rr && rr.ncc > .6 && rr.cov > .3 && accept(rr, K)) { r = rr; T.key = K; break search; }
+          }
+        }
+      }
+      if (accept(r, T.key)) {
+        const snap = T.lost > 3;
+        T.H = r.H; T.lost = 0; T.good++;
+        const cur = T.key.corners.map(c => applyH(T.H, c));
+        // Lær løbende: når billedet er rent (ingen hånd), tages et nyt nøglebillede med dine nye streger
+        if (T.good > 12 && r.ncc > .93 && r.cov > .9 && ts - T.refreshed > 2500) {
+          T.key = makeKey(f, cur); T.H = [1,0,0,0,1,0,0,0,1]; T.refreshed = ts; T.good = 0;
+          // Gem de seneste nøglebilleder og altid det første
+          T.keys = [T.key, ...T.keys.slice(0, 3).filter((k, i) => i < 2), T.keys[T.keys.length - 1]].filter((k, i, a) => a.indexOf(k) === i);
+        }
+        const m = viewMap(), target = cur.map(c => fromNorm(c, m, T.w, T.h));
+        // Rolig udglatning: små rystelser dæmpes, store bevægelser følges straks
+        A.sm = A.sm && !snap ? A.sm.map((p, i) => {
+          const d = dist(p, target[i]), a = Math.min(1, Math.max(.25, d / 14));
+          return [p[0] + (target[i][0] - p[0]) * a, p[1] + (target[i][1] - p[1]) * a];
+        }) : target;
+        applyTransform();
+      } else { T.lost++; T.good = 0; }
+    }
   } catch (e) { if (A.T) A.T.lost++; }
   busy = false;
   setStatus();
@@ -556,7 +718,7 @@ function setStatus(){
   st.hidden = !show; if (!show) return;
   const ok = A.T.lost < 4;
   st.classList.toggle('ok', ok && !fewWarn);
-  st.querySelector('span').textContent = !ok ? 'Leder… hold papiret i billedet'
+  st.querySelector('span').textContent = !ok ? 'Leder efter din tegning…'
     : fewWarn ? 'Fastgjort, men der er lidt at følge efter' : 'Fastgjort til papiret';
 }
 
@@ -748,6 +910,14 @@ function autoSteps(gray, w, h, detail){
   }
   return steps;
 }
+// Blyantsskitse (color dodge): bevarer fotoets toner og skygger som grå blyant
+function pencil(gray, w, h, r){
+  const n = gray.length, inv = new Float32Array(n);
+  for (let i = 0; i < n; i++) inv[i] = 255 - gray[i];
+  const b = blur(inv, w, h, r), out = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const d = 255 - b[i]; const v = d <= 1 ? 255 : Math.min(255, gray[i] * 255 / d); out[i] = 255 - v; }
+  return out;
+}
 /*ALGO-END*/
 
 function grayOf(img, max){
@@ -770,9 +940,24 @@ function maskURL(mask, w, h, thick){
 }
 
 /* Foto vist som streger (samme detaljegrad som én samlet tegning) */
+function toneURL(dark, w, h, contrast, gamma){
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d'), img = ctx.createImageData(w, h), d = img.data;
+  const col = S.color.match(/\w\w/g).map(v => parseInt(v, 16));
+  for (let i = 0; i < w * h; i++) {
+    const a = Math.min(1, dark[i] / 255 * contrast);
+    d[i*4] = col[0]; d[i*4+1] = col[1]; d[i*4+2] = col[2]; d[i*4+3] = 255 * Math.pow(a, gamma);
+  }
+  ctx.putImageData(img, 0, 0);
+  return c.toDataURL('image/png');
+}
 function makeLines(){
   if (!photo) return;
   const {gray, w, h} = grayOf(photo, 1000);
+  if (S.photoMode === 'sketch') {
+    photoLines = toneURL(pencil(gray, w, h, 3 + S.smooth * 3), w, h, 1.5 + S.detail / 18, .8);
+    S.W = w; S.H = h; return;
+  }
   const m = dropSmall(edgeLevel(gray, w, h, S.smooth, .97 - S.detail / 100 * .1), w, h, 8);
   photoLines = maskURL(m, w, h, Math.max(1, Math.round(w / 700)));
   S.W = w; S.H = h;
@@ -787,6 +972,8 @@ function makeAutoGuide(){
   const vh = Math.round(300 * h / w), thick = Math.max(1, Math.round(w / 500));
   LESSONS.auto = {name:'Mit foto', vw:300, vh, auto:true,
     steps: steps.map(s => [s.name, `<image href="${maskURL(s.mask, w, h, thick)}" x="0" y="0" width="300" height="${vh}" preserveAspectRatio="none"/>`])};
+  // Sidste trin: toner og skygger som en blyantsskitse af fotoet
+  LESSONS.auto.steps.push(['Skygger og toner', `<image href="${toneURL(pencil(gray, w, h, 10), w, h, 1.5 + S.detail / 25, .9)}" x="0" y="0" width="300" height="${vh}" preserveAspectRatio="none"/>`]);
   return true;
 }
 
@@ -907,7 +1094,7 @@ async function openImage(rec, view){
     if (photo && photo.src.startsWith('blob:')) URL.revokeObjectURL(photo.src);
     photo = im; photoId = rec.id; delete LESSONS.auto; setGStatus('');
     if (view === 'auto' && makeAutoGuide()) { S.step = 0; selectSource('auto'); }
-    else { S.photoMode = view === 'photo' ? 'photo' : 'lines'; selectSource('photo'); }
+    else { S.photoMode = (view === 'photo' || view === 'sketch') ? view : 'lines'; selectSource('photo'); }
   } catch (e) { setGal('Billedet kunne ikke åbnes.'); }
 }
 
@@ -1073,9 +1260,10 @@ function renderTiles(){
   $('#vSteps').setAttribute('aria-pressed', S.src === 'auto');
   $('#pmLines').setAttribute('aria-pressed', isPhoto && S.photoMode === 'lines');
   $('#pmPhoto').setAttribute('aria-pressed', isPhoto && S.photoMode === 'photo');
+  $('#pmSketch').setAttribute('aria-pressed', isPhoto && S.photoMode === 'sketch');
   $('#gDelImg').hidden = !photoId;
-  $('#smoothField').hidden = !(isPhoto && S.photoMode === 'lines');
-  $('#detailField').hidden = !((isPhoto && S.photoMode === 'lines') || S.src === 'auto');
+  $('#smoothField').hidden = !(isPhoto && S.photoMode !== 'photo');
+  $('#detailField').hidden = !((isPhoto && S.photoMode !== 'photo') || S.src === 'auto');
   renderGallery();
 }
 function renderSwatches(){
@@ -1105,6 +1293,7 @@ $('#rOpacity').oninput = e => { S.opacity = e.target.value / 100; $('#oOpacity')
 $('#rDetail').oninput = e => { S.detail = +e.target.value; $('#oDetail').textContent = e.target.value; scheduleLines(); save(); };
 $('#rSmooth').oninput = e => { S.smooth = +e.target.value; $('#oSmooth').textContent = e.target.value; scheduleLines(); save(); };
 $('#pmLines').onclick = () => { if (!photo) return; S.photoMode = 'lines'; selectSource('photo'); };
+$('#pmSketch').onclick = () => { if (!photo) return; S.photoMode = 'sketch'; selectSource('photo'); };
 $('#pmPhoto').onclick = () => { if (!photo) return; S.photoMode = 'photo'; selectSource('photo'); };
 $('#cFlip').onclick = () => { S.flip = !S.flip; $('#cFlip').setAttribute('aria-pressed', S.flip); applyTransform(); save(); };
 $('#cGrid').onclick = () => { S.grid = !S.grid; $('#cGrid').setAttribute('aria-pressed', S.grid); renderOverlay(); save(); };
