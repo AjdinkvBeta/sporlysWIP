@@ -152,8 +152,8 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px}
         <div id="photoOpts" hidden class="field" style="gap:12px">
           <div class="label">Valgt billede</div>
           <div class="chips" id="viewChips" role="group" aria-label="Visning af billedet">
-            <button class="chip" id="vSteps" aria-pressed="false">Trin</button>
             <button class="chip" id="pmSketch" aria-pressed="false">Skitse</button>
+            <button class="chip" id="vSteps" aria-pressed="false">Trin</button>
             <button class="chip" id="pmLines" aria-pressed="true">Streger</button>
             <button class="chip" id="pmPhoto" aria-pressed="false">Foto</button>
           </div>
@@ -1157,7 +1157,7 @@ async function importFiles(files){
   if (bad) msg += ` ${bad} ${bad === 1 ? 'fil' : 'filer'} kunne ikke læses.`;
   if (unsaved) msg += ' Browseren tillader ikke at gemme her, så de forsvinder, når siden lukkes.';
   setGal(msg);
-  if (first) openImage(first, 'auto');
+  if (first) openImage(first, 'sketch');
 }
 
 $('#file').addEventListener('change', e => {
@@ -1190,7 +1190,7 @@ function renderGallery(){
     const sp = document.createElement('span'); sp.textContent = rec.name;
     sp.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     b.append(img, sp);
-    b.onclick = () => openImage(rec, 'auto');
+    b.onclick = () => openImage(rec, 'sketch');
     g.appendChild(b);
   }
 }
