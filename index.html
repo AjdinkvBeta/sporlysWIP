@@ -387,7 +387,7 @@ function quadOK(q, ref){
   }
   let aref = 0; for (let i = 0; i < 4; i++) { const a = ref[i], b = ref[(i+1)%4]; aref += a[0]*b[1] - b[0]*a[1]; }
   const ratio = Math.abs(area) / Math.abs(aref);
-  return ratio > .15 && ratio < 7;
+  return ratio > .02 && ratio < 60;
 }
 function sampleG(g, w, h, x, y){
   if (!(x >= 0 && y >= 0 && x < w - 1 && y < h - 1)) return NaN;
@@ -499,11 +499,11 @@ function alignLevel(L, img, H, iters, mdl){
     const dp = solve(M, b); if (!dp) return null;
     const W = Mo.W(dp), Wi = m3inv(W); if (!Wi) return null;
     H = m3mul(H, Wi); H = H.map(v => v / H[8]);
-    stat = {inl: good / cnt, cov: cnt / n, ncc: nccNow};
+    stat = {inl: good / cnt, cov: cnt / n, ncc: nccNow, vis: cnt};
     let step = 0; for (const d of dp) step += d*d;
     if (step < 1e-8) break;
   }
-  return {H, inl: stat.inl, cov: stat.cov, ncc: stat.ncc};
+  return {H, inl: stat.inl, cov: stat.cov, ncc: stat.ncc, vis: stat.vis};
 }
 // persp: forfin bagefter med fuldt perspektiv (papiret set skråt), når sporingen er sikker
 function alignDense(tmpl, g, w, h, H0, persp){
@@ -662,14 +662,16 @@ function makeKey(f, corners){
   if (tmpl[0].pts.length < 600 || tmpl[2].pts.length < 60) { tmpl = buildTemplate(f.g, f.w, f.h, null); region = false; }
   return {tmpl, corners, region, fm: fmPrepare(f.g, f.w, f.h)};
 }
+function polyArea(q){ let a = 0; for (let i = 0; i < q.length; i++) { const p = q[i], n = q[(i+1) % q.length]; a += p[0]*n[1] - n[0]*p[1]; } return Math.abs(a) / 2; }
 function anchorNow(){
   const f = grabGray(); if (!f) return 'nocam';
   const m = viewMap(), corners = freeCorners().map(p => toNorm(p, m, f.w, f.h)), key = makeKey(f, corners);
   A.T = {w: f.w, h: f.h, key, keys: [key], rr: 0, H: [1,0,0,0,1,0,0,0,1], lost: 0, good: 0, refreshed: performance.now(), relocAt: 0};
-  A.sm = freeCorners();
+  A.sm = freeCorners(); A.area0 = polyArea(A.sm);
   return key.tmpl[0].pts.length < 400 ? 'few' : 'ok';
 }
-const accept = (r, K) => r && r.ncc > .45 && r.cov > .15 && quadOK(K.corners.map(c => applyH(r.H, c)), K.corners);
+// Tæt på papiret ses kun en lille del af nøglebilledet; nok synlige punkter er så godt nok
+const accept = (r, K) => r && r.ncc > .45 && (r.cov > .15 || r.vis > 250) && quadOK(K.corners.map(c => applyH(r.H, c)), K.corners);
 
 /*GYRO-START*/
 /* ---------- Bevægelsessensor: lærer selv, hvordan telefonens drejning flytter billedet ---------- */
@@ -769,10 +771,13 @@ function loop(ts){
         snap = T.lost > 3 && !gyroMode;
         T.H = r.H; T.lost = 0; T.good++; gyroMode = false; show = true;
         // Lær løbende: når billedet er rent (ingen hånd), tages et nyt nøglebillede med dine nye streger
-        if (T.good > 12 && r.ncc > .93 && r.cov > .9 && ts - T.refreshed > 2500) {
+        // Nyt nøglebillede: med jævne mellemrum, og hurtigere når du er gået tættere på eller længere væk
+        const zk = Math.sqrt(Math.abs(T.H[0]*T.H[4] - T.H[1]*T.H[3]));
+        const zoomed = (zk > 1.35 || zk < .75) && r.ncc > .9 && r.vis > 800 && ts - T.refreshed > 700;
+        if (zoomed || (T.good > 12 && r.ncc > .93 && r.cov > .9 && ts - T.refreshed > 2500)) {
           const cur = T.key.corners.map(c => applyH(T.H, c));
           T.key = makeKey(f, cur); T.H = [1,0,0,0,1,0,0,0,1]; T.refreshed = ts; T.good = 0;
-          T.keys = [T.key, ...T.keys.slice(0, 3).filter((k, i) => i < 2), T.keys[T.keys.length - 1]].filter((k, i, a) => a.indexOf(k) === i);
+          T.keys = [T.key, ...T.keys.slice(0, 3), T.keys[T.keys.length - 1]].filter((k, i, a) => a.indexOf(k) === i);
         }
       } else {
         T.lost++; T.good = 0;
@@ -801,8 +806,10 @@ function setStatus(){
   st.hidden = !show; if (!show) return;
   const ok = A.T.lost < 4;
   st.classList.toggle('ok', ok && !fewWarn);
+  const z = A.sm && A.area0 ? Math.sqrt(polyArea(A.sm) / A.area0) : 1;
+  const zt = Math.abs(z - 1) > .12 ? ` · ${z.toFixed(1).replace('.', ',')}×` : '';
   st.querySelector('span').textContent = gyroMode && !ok ? 'Følger med telefonens bevægelse…' : !ok ? 'Leder efter din tegning…'
-    : fewWarn ? 'Fastgjort, men der er lidt at følge efter' : 'Fastgjort til papiret';
+    : (fewWarn ? 'Fastgjort, men der er lidt at følge efter' : 'Fastgjort til papiret') + zt;
 }
 
 /* ---------- Kamera og tilstande ---------- */
@@ -1048,9 +1055,9 @@ function toneURL(dark, w, h, contrast, gamma){
 }
 function makeLines(){
   if (!photo) return;
-  const {gray, w, h} = grayOf(photo, 1000);
+  const {gray, w, h} = grayOf(photo, S.photoMode === 'sketch' ? 1600 : 1000);
   if (S.photoMode === 'sketch') {
-    photoLines = toneURL(pencil(gray, w, h, 3 + S.smooth * 3), w, h, 1.5 + S.detail / 18, .8);
+    photoLines = toneURL(pencil(gray, w, h, Math.round((3 + S.smooth * 3) * w / 1000)), w, h, 1.5 + S.detail / 18, .8);
     S.W = w; S.H = h; return;
   }
   const m = dropSmall(edgeLevel(gray, w, h, S.smooth, .97 - S.detail / 100 * .1), w, h, 8);
@@ -1073,7 +1080,7 @@ function bandURL(al, w, h, lo, hi){
 }
 function makeAutoGuide(){
   if (!photo) return false;
-  const {gray, w, h} = grayOf(photo, 800);
+  const {gray, w, h} = grayOf(photo, 1100);
   const steps = autoSteps(gray, w, h, S.detail);
   const vh = Math.round(300 * h / w), thick = Math.max(1, Math.round(w / 500));
   const img = url => `<image href="${url}" x="0" y="0" width="300" height="${vh}" preserveAspectRatio="none"/>`;
