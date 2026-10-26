@@ -1041,16 +1041,36 @@ function makeLines(){
 }
 
 /* Automatisk trin-guide */
+// Trin-guide, der bygger op til Skitse: først linjer fra store former til detaljer, så skyggerne fra mørk til lys
+function bandURL(al, w, h, lo, hi){
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d'), img = ctx.createImageData(w, h), d = img.data;
+  const col = S.color.match(/\w\w/g).map(v => parseInt(v, 16));
+  for (let i = 0; i < w * h; i++) {
+    const a = al[i]; if (a <= lo || a > hi) continue;
+    d[i*4] = col[0]; d[i*4+1] = col[1]; d[i*4+2] = col[2]; d[i*4+3] = 255 * a;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c.toDataURL('image/png');
+}
 function makeAutoGuide(){
   if (!photo) return false;
   const {gray, w, h} = grayOf(photo, 800);
   const steps = autoSteps(gray, w, h, S.detail);
-  if (!steps.length) return false;
   const vh = Math.round(300 * h / w), thick = Math.max(1, Math.round(w / 500));
-  LESSONS.auto = {name:'Mit foto', vw:300, vh, auto:true,
-    steps: steps.map(s => [s.name, `<image href="${maskURL(s.mask, w, h, thick)}" x="0" y="0" width="300" height="${vh}" preserveAspectRatio="none"/>`])};
-  // Sidste trin: toner og skygger som en blyantsskitse af fotoet
-  LESSONS.auto.steps.push(['Skygger og toner', `<image href="${toneURL(pencil(gray, w, h, 10), w, h, 1.5 + S.detail / 25, .9)}" x="0" y="0" width="300" height="${vh}" preserveAspectRatio="none"/>`]);
+  const img = url => `<image href="${url}" x="0" y="0" width="300" height="${vh}" preserveAspectRatio="none"/>`;
+  const names = {'Store former': 'Omrids'};
+  const out = steps.map(st => [names[st.name] || st.name, img(maskURL(st.mask, w, h, thick))]);
+  // Samme blyantsskitse som visningen Skitse, delt i toner
+  const dark = pencil(gray, w, h, Math.max(2, Math.round((3 + S.smooth * 3) * w / 1000)));
+  const contrast = 1.5 + S.detail / 18, al = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) al[i] = Math.pow(Math.min(1, dark[i] / 255 * contrast), .8);
+  for (const [name, lo, hi] of [['Mørke skygger', .55, 1], ['Mellemtoner', .28, .55], ['Lyse toner', .04, .28]]) {
+    let n = 0; for (let i = 0; i < al.length; i++) if (al[i] > lo && al[i] <= hi) n++;
+    if (n > w * h * .002) out.push([name, img(bandURL(al, w, h, lo, hi))]);
+  }
+  if (!out.length) return false;
+  LESSONS.auto = {name:'Mit foto', vw:300, vh, auto:true, steps: out};
   return true;
 }
 
