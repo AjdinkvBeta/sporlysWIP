@@ -196,6 +196,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px}
           <button class="chip" id="cFlip" aria-pressed="false">Spejlvend</button>
           <button class="chip" id="cGrid" aria-pressed="false">Gitter</button>
           <button class="chip" id="cCenter">Centrer</button>
+          <button class="chip" id="cPersp" aria-pressed="true" title="Lad skitsen følge papirets skrå vinkel">Perspektiv</button>
         </div>
         <p class="hint" id="modeHint"></p>
       </div>
@@ -264,17 +265,17 @@ const COLORS = [['Blå','#1f45ff'],['Sort','#111111'],['Rød','#e0302a'],['Grøn
 const S = {
   mode:'light', tracking:false, locked:false, opacity:.6, color:'#1f45ff', grid:false, flip:false, fill:.85,
   x:0, y:0, s:1, r:0, W:300, H:400,
-  src:'kat', step:0, photoMode:'lines', detail:50, smooth:2
+  src:'kat', step:0, photoMode:'lines', detail:50, smooth:2, persp:true
 };
 let camOK = false, photo = null, photoLines = null, quad = null, lastSeen = 0, peeking = false;
 const KEY = 'sporlys:v1';
 let restoreWant = null;
 try { const saved = JSON.parse(localStorage.getItem(KEY) || '{}');
-  for (const k of ['opacity','color','grid','flip','fill','src','step','detail','smooth']) if (k in saved) S[k] = saved[k];
+  for (const k of ['opacity','color','grid','flip','fill','src','step','detail','smooth','persp']) if (k in saved) S[k] = saved[k];
   if ((S.src === 'photo' || S.src === 'auto') && saved.photoId) restoreWant = {src:S.src, photoId:saved.photoId, mode:saved.photoMode, step:S.step};
   if (!LESSONS[S.src]) { S.src = 'kat'; S.step = 0; }
 } catch (e) {}
-function save(){ try { localStorage.setItem(KEY, JSON.stringify({opacity:S.opacity,color:S.color,grid:S.grid,flip:S.flip,fill:S.fill,src:(S.src === 'photo' || S.src === 'auto' || LESSONS[S.src]) ? S.src : 'kat',step:S.step,detail:S.detail,smooth:S.smooth,photoMode:S.photoMode,photoId:(S.src === 'photo' || S.src === 'auto') ? photoId : null})); } catch (e) {} }
+function save(){ try { localStorage.setItem(KEY, JSON.stringify({opacity:S.opacity,color:S.color,grid:S.grid,flip:S.flip,fill:S.fill,src:(S.src === 'photo' || S.src === 'auto' || LESSONS[S.src]) ? S.src : 'kat',step:S.step,persp:S.persp,detail:S.detail,smooth:S.smooth,photoMode:S.photoMode,photoId:(S.src === 'photo' || S.src === 'auto') ? photoId : null})); } catch (e) {} }
 
 /* ---------- Overlay rendering ---------- */
 function lessonSVG(id, upto, color, thumb){
@@ -406,8 +407,6 @@ const MODELS = {
   aff:  {n: 6, sd: (gx, gy, X, Y) => [gx*X, gx*Y, gx, gy*X, gy*Y, gy], W: p => [1 + p[0], p[1], p[2], p[3], 1 + p[4], p[5], 0, 0, 1]},
   hom:  {n: 8, sd: (gx, gy, X, Y) => [gx*X, gx*Y, gx, gy*X, gy*Y, gy, -gx*X*X - gy*X*Y, -gx*X*Y - gy*Y*Y], W: p => [1 + p[0], p[1], p[2], p[3], 1 + p[4], p[5], p[6], p[7], 1]}
 };
-let MODEL = MODELS.sim;
-function setModel(k){ MODEL = MODELS[k]; }
 /* ---------- Direkte billedjustering (invers-kompositionel Lucas-Kanade, robust) ---------- */
 function downHalf(g, w, h){
   const W = w >> 1, H = h >> 1, o = new Float32Array(W * H);
@@ -448,7 +447,7 @@ function buildTemplate(g, w, h, region){
       const i = y*lw + x, gx = (t[i+1] - t[i-1]) / 2 * s, gy = (t[i+lw] - t[i-lw]) / 2 * s;
       const X = (x - cx) / s, Y = (y - cy) / s;
       if (region && !inQuad(region, X, Y)) continue;
-      pts.push({X, Y, T: t[i], sd: MODEL.sd(gx, gy, X, Y)});
+      pts.push({X, Y, T: t[i], sd: MODELS.sim.sd(gx, gy, X, Y), sdh: MODELS.hom.sd(gx, gy, X, Y)});
     }
     // Højst ~5000 punkter pr. niveau
     const stride = Math.max(1, Math.ceil(pts.length / 5000));
@@ -457,7 +456,8 @@ function buildTemplate(g, w, h, region){
   return levels;
 }
 // Én niveaus robuste IC-LK; H er i normaliserede koordinater (skabelon -> billede)
-function alignLevel(L, img, H, iters){
+function alignLevel(L, img, H, iters, mdl){
+  const Mo = MODELS[mdl || 'sim'], hom = mdl === 'hom';
   const {pts, s, cx, cy} = L, n = pts.length, res = new Float32Array(n), ok = new Uint8Array(n), Iw = new Float32Array(n);
   let wts = null, stat = {inl: 0}, nccNow = 0;
   for (let it = 0; it < iters; it++) {
@@ -483,7 +483,7 @@ function alignLevel(L, img, H, iters){
       nccNow = (sti/c - mt*mi) / den; }
     const sigma = Math.min(25, Math.max(2, 1.4826 * absr[absr.length >> 1])), k = 2 * sigma;
     if (!wts) wts = new Float32Array(n);
-    const D = MODEL.n, M = Array.from({length: D}, () => new Array(D).fill(0)), b = new Array(D).fill(0);
+    const D = Mo.n, M = Array.from({length: D}, () => new Array(D).fill(0)), b = new Array(D).fill(0);
     let inl = 0;
     for (let i = 0; i < n; i++) {
       if (!ok[i]) { wts[i] = 0; continue; }
@@ -491,12 +491,13 @@ function alignLevel(L, img, H, iters){
       const w = a < k ? (1 - (a / (3*sigma)) ** 2) ** 2 : (a < 3*sigma ? (1 - (a / (3*sigma)) ** 2) ** 2 : 0); // Tukey
       wts[i] = w; if (a < k) inl++;
       if (!w) continue;
-      const sd = pts[i].sd;
+      const sd = hom ? pts[i].sdh : pts[i].sd;
       for (let j = 0; j < D; j++) { b[j] += w * sd[j] * r; const wj = w * sd[j]; for (let q = j; q < D; q++) M[j][q] += wj * sd[q]; }
     }
-    for (let j = 0; j < D; j++) { M[j][j] += 1e-6 * (1 + M[j][j]); for (let q = 0; q < j; q++) M[j][q] = M[q][j]; }
+    // Dæmpning: perspektivet ændres forsigtigt, så det ikke løber løbsk på et næsten tomt papir
+    for (let j = 0; j < D; j++) { M[j][j] += 1e-6 + (hom ? (j >= 6 ? .15 : .08) : 0) * M[j][j]; for (let q = 0; q < j; q++) M[j][q] = M[q][j]; }
     const dp = solve(M, b); if (!dp) return null;
-    const W = MODEL.W(dp), Wi = m3inv(W); if (!Wi) return null;
+    const W = Mo.W(dp), Wi = m3inv(W); if (!Wi) return null;
     H = m3mul(H, Wi); H = H.map(v => v / H[8]);
     stat = {inl: good / cnt, cov: cnt / n, ncc: nccNow};
     let step = 0; for (const d of dp) step += d*d;
@@ -504,13 +505,19 @@ function alignLevel(L, img, H, iters){
   }
   return {H, inl: stat.inl, cov: stat.cov, ncc: stat.ncc};
 }
-function alignDense(tmpl, g, w, h, H0){
+// persp: forfin bagefter med fuldt perspektiv (papiret set skråt), når sporingen er sikker
+function alignDense(tmpl, g, w, h, H0, persp){
   const P = pyramid(g, w, h, 3);
   let H = H0, last = null;
   for (let l = 2; l >= 0; l--) {
     const r = alignLevel(tmpl[l], P[l], H, l === 0 ? 6 : 12);
     if (!r) return null;
     H = r.H; last = r;
+  }
+  if (persp && last.ncc > .5) {
+    let Hp = last.H, rp = null;
+    for (const l of [1, 0]) { rp = alignLevel(tmpl[l], P[l], Hp, 8, 'hom'); if (!rp) break; Hp = rp.H; }
+    if (rp && rp.ncc >= last.ncc - .003 && Math.abs(Hp[6]) < .5 && Math.abs(Hp[7]) < .5) return rp;
   }
   return last;
 }
@@ -741,7 +748,7 @@ function loop(ts){
       const P = g && M ? calPredict(M, g) : null;
       const Hguess = P ? m3mul(P, T.H) : T.H;
       const keyBefore = T.key, Hbefore = T.H, wasOk = T.lost === 0;
-      let r = T.lost < (M ? 30 : 8) ? alignDense(T.key.tmpl, f.g, f.w, f.h, Hguess) : null;
+      let r = T.lost < (M ? 30 : 8) ? alignDense(T.key.tmpl, f.g, f.w, f.h, Hguess, S.persp) : null;
       // Helt tabt: let efter tegningen i hele billedet (nøglebillederne på skift)
       if (!accept(r, T.key) && T.lost >= 4 && ts - T.relocAt > 300) {
         T.relocAt = ts; r = null;
@@ -833,6 +840,16 @@ function setMode(m){
       : 'Flyt skitsen på plads med én finger, zoom og drej med to. Tryk derefter på Fastgør, så bliver den siddende på papiret, også når telefonen eller hånden flytter sig.';
   setStatus();
 }
+// Lås fokus og lys, mens skitsen er fastgjort (kun hvor browseren tillader det, fx Chrome på Android)
+function lockCamera(on){
+  try {
+    const tr = video.srcObject && video.srcObject.getVideoTracks()[0];
+    if (!tr || !tr.getCapabilities) return;
+    const c = tr.getCapabilities(), adv = {}, want = on ? 'manual' : 'continuous';
+    for (const k of ['focusMode', 'exposureMode', 'whiteBalanceMode']) if (Array.isArray(c[k]) && c[k].includes(want)) adv[k] = want;
+    if (Object.keys(adv).length) tr.applyConstraints({advanced: [adv]}).catch(() => {});
+  } catch (e) {}
+}
 function setTracking(on){
   if (on) {
     if (!camOK) return;
@@ -840,7 +857,8 @@ function setTracking(on){
     const r = anchorNow();
     if (r === 'nocam') { showNotice('Kameraet er ikke klar endnu. Vent et øjeblik, og prøv igen.'); return; }
     fewWarn = r === 'few';
-  } else { A.T = null; A.sm = null; fewWarn = false; }
+    lockCamera(true);
+  } else { A.T = null; A.sm = null; fewWarn = false; lockCamera(false); }
   S.tracking = on;
   $('#bTrack').setAttribute('aria-pressed', on);
   $('#bTrack').title = on ? 'Løsn skitsen' : 'Fastgør til papiret';
@@ -1395,6 +1413,7 @@ $('#pmPhoto').onclick = () => { if (!photo) return; S.photoMode = 'photo'; selec
 $('#cFlip').onclick = () => { S.flip = !S.flip; $('#cFlip').setAttribute('aria-pressed', S.flip); applyTransform(); save(); };
 $('#cGrid').onclick = () => { S.grid = !S.grid; $('#cGrid').setAttribute('aria-pressed', S.grid); renderOverlay(); save(); };
 $('#cCenter').onclick = () => fitOverlay();
+$('#cPersp').onclick = () => { S.persp = !S.persp; $('#cPersp').setAttribute('aria-pressed', S.persp); save(); };
 
 $('#mCam').onclick = () => startCamera();
 $('#mLight').onclick = () => { hideNotice(); setMode('light'); };
@@ -1414,6 +1433,7 @@ window.addEventListener('resize', () => { if (!S.tracking) { S.x = Math.min(S.x,
 /* ---------- Start ---------- */
 $('#rOpacity').value = Math.round(S.opacity * 100); $('#oOpacity').textContent = Math.round(S.opacity * 100) + ' %';
 $('#rDetail').value = S.detail; $('#oDetail').textContent = S.detail; $('#rSmooth').value = S.smooth; $('#oSmooth').textContent = S.smooth;
+$('#cPersp').setAttribute('aria-pressed', S.persp);
 $('#cFlip').setAttribute('aria-pressed', S.flip); $('#cGrid').setAttribute('aria-pressed', S.grid);
 renderTiles(); renderSwatches(); renderOverlay(); fitOverlay(); setMode('light');
 restoreGallery();
