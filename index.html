@@ -144,21 +144,15 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px}
       </div>
 
       <div class="pane" id="pMotiv">
-        <div class="label">Tegn trin for trin</div>
-        <div class="tiles" id="tiles"></div>
-        <div id="mineWrap" class="field" hidden>
-          <div class="label">Mine guides</div>
-          <div class="tiles" id="mine"></div>
-          <div><button class="chip" id="gDel" hidden>Slet guide</button></div>
+        <div class="field">
+          <div class="label">Mine billeder</div>
+          <div class="tiles" id="gallery"></div>
+          <p class="hint" id="galStatus" aria-live="polite"></p>
         </div>
         <div id="photoOpts" hidden class="field" style="gap:12px">
-          <div class="label">Lav en trin-guide af dit billede</div>
-          <div class="chips">
-            <button class="btn" id="gAuto">Automatisk trin</button>
-            <button class="btn ghost" id="gAI" hidden>Tegnet af Claude</button>
-          </div>
-          <p class="hint" id="gStatus" aria-live="polite"></p>
-          <div class="chips" id="viewChips" role="group" aria-label="Billedvisning">
+          <div class="label">Valgt billede</div>
+          <div class="chips" id="viewChips" role="group" aria-label="Visning af billedet">
+            <button class="chip" id="vSteps" aria-pressed="false">Trin</button>
             <button class="chip" id="pmLines" aria-pressed="true">Streger</button>
             <button class="chip" id="pmPhoto" aria-pressed="false">Foto</button>
           </div>
@@ -170,8 +164,22 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px}
             <div class="top"><span>Udglatning</span><output id="oSmooth">2</output></div>
             <input type="range" id="rSmooth" min="0" max="5" value="2">
           </div>
+          <div class="chips">
+            <button class="btn ghost" id="gAI" hidden>Lad Claude tegne en guide</button>
+            <button class="chip" id="gDelImg">Slet billede</button>
+          </div>
+          <p class="hint" id="gStatus" aria-live="polite"></p>
         </div>
-        <input type="file" id="file" accept="image/*" hidden>
+        <div id="mineWrap" class="field" hidden>
+          <div class="label">Guides tegnet af Claude</div>
+          <div class="tiles" id="mine"></div>
+          <div><button class="chip" id="gDel" hidden>Slet guide</button></div>
+        </div>
+        <div class="field">
+          <div class="label">Indbyggede motiver</div>
+          <div class="tiles" id="tiles"></div>
+        </div>
+        <input type="file" id="file" accept="image/*,.zip,application/zip" multiple hidden>
       </div>
 
       <div class="pane" id="pJuster" hidden>
@@ -263,11 +271,13 @@ const S = {
 };
 let camOK = false, photo = null, photoLines = null, quad = null, lastSeen = 0, peeking = false;
 const KEY = 'sporlys:v1';
+let restoreWant = null;
 try { const saved = JSON.parse(localStorage.getItem(KEY) || '{}');
-  for (const k of ['opacity','color','grid','flip','fill','src','step']) if (k in saved) S[k] = saved[k];
+  for (const k of ['opacity','color','grid','flip','fill','src','step','detail','smooth']) if (k in saved) S[k] = saved[k];
+  if ((S.src === 'photo' || S.src === 'auto') && saved.photoId) restoreWant = {src:S.src, photoId:saved.photoId, mode:saved.photoMode, step:S.step};
   if (!LESSONS[S.src]) { S.src = 'kat'; S.step = 0; }
 } catch (e) {}
-function save(){ try { localStorage.setItem(KEY, JSON.stringify({opacity:S.opacity,color:S.color,grid:S.grid,flip:S.flip,fill:S.fill,src:(LESSONS[S.src] && S.src !== 'auto') ? S.src : 'kat',step:S.step})); } catch (e) {} }
+function save(){ try { localStorage.setItem(KEY, JSON.stringify({opacity:S.opacity,color:S.color,grid:S.grid,flip:S.flip,fill:S.fill,src:(S.src === 'photo' || S.src === 'auto' || LESSONS[S.src]) ? S.src : 'kat',step:S.step,detail:S.detail,smooth:S.smooth,photoMode:S.photoMode,photoId:(S.src === 'photo' || S.src === 'auto') ? photoId : null})); } catch (e) {} }
 
 /* ---------- Overlay rendering ---------- */
 function lessonSVG(id, upto, color, thumb){
@@ -687,13 +697,158 @@ function selectSource(id){
   renderTiles(); renderOverlay(); fitOverlay(); save();
 }
 
+/* ---------- Mine billeder (gemt i browseren med IndexedDB) ---------- */
+let gallery = [], photoId = null, dbP = null;
+function idb(){
+  if (dbP) return dbP;
+  dbP = new Promise(res => {
+    try {
+      const r = indexedDB.open('sporlys', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('images', {keyPath: 'id'});
+      r.onsuccess = () => res(r.result); r.onerror = () => res(null); r.onblocked = () => res(null);
+    } catch (e) { res(null); }
+  });
+  return dbP;
+}
+function idbReq(mode, fn){
+  return idb().then(db => new Promise(res => {
+    if (!db) return res(null);
+    try { const tx = db.transaction('images', mode); const q = fn(tx.objectStore('images')); q.onsuccess = () => res(q.result === undefined ? true : q.result); q.onerror = () => res(null); }
+    catch (e) { res(null); }
+  }));
+}
+const idbAll = () => idbReq('readonly', s => s.getAll());
+const idbPut = rec => idbReq('readwrite', s => s.put(rec));
+const idbDel = id => idbReq('readwrite', s => s.delete(id));
+
+function loadImg(blob){
+  return new Promise((res, rej) => { const u = URL.createObjectURL(blob), im = new Image(); im.onload = () => res(im); im.onerror = () => { URL.revokeObjectURL(u); rej(); }; im.src = u; });
+}
+async function shrink(blob){
+  const im = await loadImg(blob);
+  const sc = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight));
+  if (sc === 1 && blob.size < 3e6) return blob;
+  const c = document.createElement('canvas');
+  c.width = Math.round(im.naturalWidth * sc); c.height = Math.round(im.naturalHeight * sc);
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(im, 0, 0, c.width, c.height);
+  URL.revokeObjectURL(im.src);
+  const png = blob.type === 'image/png';
+  return new Promise(res => c.toBlob(b => res(b || blob), png ? 'image/png' : 'image/jpeg', .9));
+}
+let zipP = null;
+function loadZip(){
+  if (window.JSZip) return Promise.resolve(window.JSZip);
+  if (zipP) return zipP;
+  zipP = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = () => window.JSZip ? res(window.JSZip) : rej(); s.onerror = () => { zipP = null; rej(); };
+    document.head.appendChild(s);
+  });
+  return zipP;
+}
+const IMG_RE = /\.(png|jpe?g|webp|gif)$/i;
+const mimeOf = n => /\.png$/i.test(n) ? 'image/png' : /\.webp$/i.test(n) ? 'image/webp' : /\.gif$/i.test(n) ? 'image/gif' : 'image/jpeg';
+function setGal(t){ $('#galStatus').textContent = t || ''; }
+
+async function addImage(blob, name){
+  try {
+    const small = await shrink(blob);
+    const rec = {id: 'i_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: String(name || 'Billede').replace(/^.*\//, '').replace(/\.[^.]+$/, '').slice(0, 40), blob: small, added: Date.now()};
+    rec.saved = !!(await idbPut(rec));
+    gallery.unshift(rec);
+    return rec;
+  } catch (e) { return null; }
+}
+
+async function importFiles(files){
+  let added = 0, bad = 0, unsaved = 0, first = null;
+  setGal('Henter billeder…');
+  const add = async (b, n) => { const r = await addImage(b, n); if (r) { added++; if (!r.saved) unsaved++; first = first || r; renderGallery(); setGal(`Henter billeder… ${added}`); } else bad++; };
+  for (const f of files) {
+    if (/\.zip$/i.test(f.name) || /zip/.test(f.type)) {
+      let JSZip;
+      try { JSZip = await loadZip(); } catch (e) { bad++; setGal('Zip-filer kan ikke åbnes lige nu. Vælg billederne enkeltvis i stedet.'); continue; }
+      try {
+        const z = await JSZip.loadAsync(f);
+        const entries = Object.values(z.files).filter(e => !e.dir && IMG_RE.test(e.name) && !/(^|\/)(__MACOSX|\.)/.test(e.name));
+        for (const e of entries) await add(new Blob([await e.async('arraybuffer')], {type: mimeOf(e.name)}), e.name);
+      } catch (e) { bad++; }
+    } else if (/^image\//.test(f.type) || IMG_RE.test(f.name)) {
+      await add(f, f.name);
+    } else bad++;
+  }
+  let msg = added ? `${added} ${added === 1 ? 'billede' : 'billeder'} tilføjet.` : 'Ingen billeder blev tilføjet.';
+  if (bad) msg += ` ${bad} ${bad === 1 ? 'fil' : 'filer'} kunne ikke læses.`;
+  if (unsaved) msg += ' Browseren tillader ikke at gemme her, så de forsvinder, når siden lukkes.';
+  setGal(msg);
+  if (first) openImage(first, 'auto');
+}
+
 $('#file').addEventListener('change', e => {
-  const f = e.target.files && e.target.files[0]; if (!f) return;
-  const url = URL.createObjectURL(f), im = new Image();
-  im.onload = () => { photo = im; photoFile = f; delete LESSONS.auto; S.photoMode = 'lines'; selectSource('photo'); setGStatus('Vælg Automatisk trin, eller lad Claude tegne en guide.'); };
-  im.onerror = () => showNotice('Billedet kunne ikke åbnes. Prøv et JPG- eller PNG-billede.');
-  im.src = url; e.target.value = '';
+  const files = [...(e.target.files || [])]; e.target.value = '';
+  if (files.length) importFiles(files);
 });
+
+async function openImage(rec, view){
+  try {
+    const im = await loadImg(rec.blob);
+    if (photo && photo.src.startsWith('blob:')) URL.revokeObjectURL(photo.src);
+    photo = im; photoId = rec.id; delete LESSONS.auto; setGStatus('');
+    if (view === 'auto' && makeAutoGuide()) { S.step = 0; selectSource('auto'); }
+    else { S.photoMode = view === 'photo' ? 'photo' : 'lines'; selectSource('photo'); }
+  } catch (e) { setGal('Billedet kunne ikke åbnes.'); }
+}
+
+function renderGallery(){
+  const g = $('#gallery'); g.innerHTML = '';
+  const u = document.createElement('button'); u.className = 'tile upload';
+  u.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Tilføj billeder</span>';
+  u.onclick = () => $('#file').click();
+  g.appendChild(u);
+  for (const rec of gallery) {
+    if (!rec.thumb) rec.thumb = URL.createObjectURL(rec.blob);
+    const b = document.createElement('button'); b.className = 'tile';
+    b.setAttribute('aria-pressed', photoId === rec.id && (S.src === 'photo' || S.src === 'auto'));
+    const img = document.createElement('img'); img.alt = ''; img.src = rec.thumb;
+    img.style.cssText = 'width:100%;height:70px;object-fit:contain';
+    const sp = document.createElement('span'); sp.textContent = rec.name;
+    sp.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    b.append(img, sp);
+    b.onclick = () => openImage(rec, 'auto');
+    g.appendChild(b);
+  }
+}
+
+let delImgArmed = 0;
+$('#gDelImg').addEventListener('click', async () => {
+  if (!photoId) return;
+  if (Date.now() - delImgArmed > 3000) { delImgArmed = Date.now(); $('#gDelImg').textContent = 'Tryk igen for at slette'; setTimeout(() => { $('#gDelImg').textContent = 'Slet billede'; }, 3000); return; }
+  delImgArmed = 0; $('#gDelImg').textContent = 'Slet billede';
+  await idbDel(photoId);
+  const r = gallery.find(x => x.id === photoId); if (r && r.thumb) URL.revokeObjectURL(r.thumb);
+  gallery = gallery.filter(x => x.id !== photoId);
+  photo = null; photoId = null; delete LESSONS.auto; S.step = 0;
+  selectSource('kat'); setGal('Billedet er slettet.');
+});
+
+$('#vSteps').onclick = () => {
+  if (!photo) return;
+  if (makeAutoGuide()) { S.step = 0; selectSource('auto'); }
+  else setGStatus('Billedet har for lidt kontrast til at lave trin. Prøv Streger eller et skarpere billede.');
+};
+
+async function restoreGallery(){
+  const all = await idbAll();
+  if (Array.isArray(all)) gallery = all.filter(r => r && r.blob).sort((a, b) => b.added - a.added);
+  renderGallery();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
+  const want = restoreWant;
+  if (want && want.photoId) {
+    const rec = gallery.find(r => r.id === want.photoId);
+    if (rec) { const st = want.step || 0; await openImage(rec, want.src === 'auto' ? 'auto' : want.mode); if (S.src === 'auto' && LESSONS.auto) { S.step = Math.min(st, LESSONS.auto.steps.length - 1); renderOverlay(); } }
+  }
+}
 
 /* ---------- Guide tegnet af Claude ---------- */
 let sampleFn = null, aiCtl = null, photoFile = null;
@@ -772,14 +927,8 @@ $('#gAI').addEventListener('click', async () => {
     setGStatus(code === 'cancelled' ? 'Stoppet.' : (AI_ERR[code] || 'Noget gik galt hos Claude. Prøv igen om lidt.'));
     if (code === 'images_unavailable' || code === 'not_declared' || code === 'capability_disabled') btn.hidden = true;
   } finally {
-    aiCtl = null; btn.textContent = 'Tegnet af Claude';
+    aiCtl = null; btn.textContent = 'Lad Claude tegne en guide';
   }
-});
-
-$('#gAuto').addEventListener('click', () => {
-  if (!photo) return;
-  if (makeAutoGuide()) { S.step = 0; selectSource('auto'); setGStatus(`${LESSONS.auto.steps.length} trin, fra store former til fine detaljer. Juster Detaljer for flere eller færre streger.`); }
-  else setGStatus('Billedet har for lidt kontrast til at lave trin. Prøv et skarpere foto.');
 });
 
 let delArmed = 0;
@@ -807,21 +956,16 @@ function renderTiles(){
     mine.appendChild(tileBtn(S.src === g.id, lessonSVG(g.id, 99, '#26272b', true) + `<span>${esc(g.name)}</span>`, () => { S.step = 0; selectSource(g.id); }));
   }
   $('#mineWrap').hidden = !guides.length;
-  if (photo) {
-    t.appendChild(tileBtn(S.src === 'photo', `<img alt="" src="${photo.src}" style="width:100%;height:70px;object-fit:cover;border-radius:6px"><span>Mit billede</span>`, () => selectSource('photo')));
-    if (LESSONS.auto) t.appendChild(tileBtn(S.src === 'auto', lessonSVG('auto', 99, '#26272b', true) + '<span>Trin af foto</span>', () => { S.step = 0; selectSource('auto'); }));
-  }
-  const u = document.createElement('button'); u.className = 'tile upload';
-  u.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3M12 4v11M7 9l5-5 5 5"/></svg><span>' + (photo ? 'Nyt billede' : 'Eget billede') + '</span>';
-  u.onclick = () => $('#file').click();
-  t.appendChild(u);
   $('#photoOpts').hidden = !photo;
-  $('#viewChips').hidden = S.src !== 'photo';
   $('#gDel').hidden = !S.src.startsWith('g_');
-  $('#pmLines').setAttribute('aria-pressed', S.photoMode === 'lines');
-  $('#pmPhoto').setAttribute('aria-pressed', S.photoMode === 'photo');
-  $('#smoothField').hidden = !(S.src === 'photo' && S.photoMode === 'lines');
-  $('#detailField').hidden = !((S.src === 'photo' && S.photoMode === 'lines') || S.src === 'auto');
+  const isPhoto = S.src === 'photo';
+  $('#vSteps').setAttribute('aria-pressed', S.src === 'auto');
+  $('#pmLines').setAttribute('aria-pressed', isPhoto && S.photoMode === 'lines');
+  $('#pmPhoto').setAttribute('aria-pressed', isPhoto && S.photoMode === 'photo');
+  $('#gDelImg').hidden = !photoId;
+  $('#smoothField').hidden = !(isPhoto && S.photoMode === 'lines');
+  $('#detailField').hidden = !((isPhoto && S.photoMode === 'lines') || S.src === 'auto');
+  renderGallery();
 }
 function renderSwatches(){
   const box = $('#swatches'); box.innerHTML = '';
@@ -848,10 +992,10 @@ $('#sNext').onclick = () => { if (S.step < LESSONS[S.src].steps.length - 1) { S.
 
 $('#rOpacity').oninput = e => { S.opacity = e.target.value / 100; $('#oOpacity').textContent = e.target.value + ' %'; ov.style.opacity = S.opacity; save(); };
 $('#rFill').oninput = e => { S.fill = e.target.value / 100; $('#oFill').textContent = e.target.value + ' %'; applyTransform(); save(); };
-$('#rDetail').oninput = e => { S.detail = +e.target.value; $('#oDetail').textContent = e.target.value; scheduleLines(); };
-$('#rSmooth').oninput = e => { S.smooth = +e.target.value; $('#oSmooth').textContent = e.target.value; scheduleLines(); };
-$('#pmLines').onclick = () => { S.photoMode = 'lines'; renderTiles(); renderOverlay(); };
-$('#pmPhoto').onclick = () => { S.photoMode = 'photo'; renderTiles(); renderOverlay(); };
+$('#rDetail').oninput = e => { S.detail = +e.target.value; $('#oDetail').textContent = e.target.value; scheduleLines(); save(); };
+$('#rSmooth').oninput = e => { S.smooth = +e.target.value; $('#oSmooth').textContent = e.target.value; scheduleLines(); save(); };
+$('#pmLines').onclick = () => { if (!photo) return; S.photoMode = 'lines'; selectSource('photo'); };
+$('#pmPhoto').onclick = () => { if (!photo) return; S.photoMode = 'photo'; selectSource('photo'); };
 $('#cFlip').onclick = () => { S.flip = !S.flip; $('#cFlip').setAttribute('aria-pressed', S.flip); applyTransform(); save(); };
 $('#cGrid').onclick = () => { S.grid = !S.grid; $('#cGrid').setAttribute('aria-pressed', S.grid); renderOverlay(); save(); };
 $('#cCenter').onclick = () => fitOverlay();
@@ -874,8 +1018,10 @@ window.addEventListener('resize', () => { if (!S.tracking) { S.x = Math.min(S.x,
 /* ---------- Start ---------- */
 $('#rOpacity').value = Math.round(S.opacity * 100); $('#oOpacity').textContent = Math.round(S.opacity * 100) + ' %';
 $('#rFill').value = Math.round(S.fill * 100); $('#oFill').textContent = Math.round(S.fill * 100) + ' %';
+$('#rDetail').value = S.detail; $('#oDetail').textContent = S.detail; $('#rSmooth').value = S.smooth; $('#oSmooth').textContent = S.smooth;
 $('#cFlip').setAttribute('aria-pressed', S.flip); $('#cGrid').setAttribute('aria-pressed', S.grid);
 renderTiles(); renderSwatches(); renderOverlay(); fitOverlay(); setMode('light');
+restoreGallery();
 startCamera();
 })();
 </script>
