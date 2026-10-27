@@ -57,3 +57,5 @@ select,input[type=number],input[type=text]{background:var(--panel2);border:1px s
   border-radius:12px;padding:10px 14px;max-width:min(440px,calc(100% - 32px));font-size:14px;box-shadow:0 10px 30px #0008}
 .progress{height:6px;background:var(--panel2);border-radius:99px;overflow:hidden}
 .progress b{display:block;height:100%;background:var(--accent);width:0}
+/* iPhone zoomer ind på felter med tekst under 16 px; derfor altid 16 px i felter */
+input,select,textarea{font-size:16px!important}

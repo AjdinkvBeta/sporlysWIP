@@ -282,6 +282,7 @@ function drawOverlay(cv, w, h, lines, showOrig, roi){
   if (showOrig) return;
   for (const l of lines) {
     if (!l.tr || l.tr.trim().toLowerCase() === l.text.trim().toLowerCase()) continue;
+    if (l.box.y1 - l.box.y0 > h * .2) continue; // urimeligt høje linjer er næsten altid fejl
     const {x0, y0, x1, y1} = l.box, bw = x1 - x0, bh = y1 - y0, pad = bh * .12;
     x.fillStyle = 'rgba(255,255,255,.93)'; x.beginPath(); if (x.roundRect) x.roundRect(x0 - pad, y0 - pad, bw + pad*2, bh + pad*2, bh * .2); else x.rect(x0 - pad, y0 - pad, bw + pad*2, bh + pad*2); x.fill();
     let fs = bh * .82; x.font = `600 ${fs}px system-ui, sans-serif`;
