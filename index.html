@@ -841,7 +841,7 @@ function toast(t, ms){ const el = $('#toast'); el.textContent = t; el.hidden = f
 function camTrack(){ const s = video.srcObject; return s && s.getVideoTracks ? s.getVideoTracks()[0] : null; }
 function setFocusPick(on){
   focusPick = on; $('#bFocus').setAttribute('aria-pressed', on);
-  if (on) toast('Kameraet stiller selv skarpt på skitsen. Tryk et andet sted, hvis det skal stille skarpt dér i stedet.', 4000);
+  if (on) toast('Tryk der, hvor kameraet skal stille skarpt i stedet for på skitsen.', 3500);
 }
 // Skærmpunkt -> punkt i videobilledet (0–1), med object-fit: cover
 function screenToVideo(x, y){
@@ -879,11 +879,7 @@ async function focusAt(x, y){
   if (res) {
     box.classList.add('ok'); AF.manualUntil = performance.now() + 15000;
     toast(res === 'point' ? 'Skarpt her. Automatisk fokus på skitsen holder pause lidt.' : 'Kameraet har stillet skarpt én gang. Det kan ikke vælge et bestemt punkt.', 3000);
-  } else {
-    box.hidden = true;
-    toast(fdOK() ? 'Telefonen lader ikke siden vælge et fokuspunkt. Brug Manuel skarphed under Juster i stedet.'
-      : 'Din telefon lader ikke hjemmesider styre kameraets fokus. Hold telefonen lidt længere fra papiret, eller vælg et andet kamera under Juster.', 5500);
-  }
+  } else { box.hidden = true; $('#bFocus').hidden = true; }
   setTimeout(() => { box.hidden = true; }, 1500);
 }
 /* Automatisk fokus på skitsen: kameraet stiller skarpt der, hvor skitsen ligger, og igen når den flyttes eller du går tættere på */
@@ -908,9 +904,17 @@ setInterval(async () => {
   AF.busy = false;
   if (res) AF.last = sp; else AF.unsupported = true;
 }, 600);
+// Kan siden styre fokus på dette kamera? Ellers skjules fokusknappen helt
+function canFocus(){
+  try {
+    const tr = camTrack(), c = tr.getCapabilities ? tr.getCapabilities() : {}, st = tr.getSettings ? tr.getSettings() : {};
+    return 'pointsOfInterest' in st || 'pointsOfInterest' in c || (Array.isArray(c.focusMode) && c.focusMode.includes('single-shot'));
+  } catch (e) { return false; }
+}
 function fdOK(){ try { const c = camTrack().getCapabilities(); return !!(c.focusDistance && c.focusDistance.max > c.focusDistance.min); } catch (e) { return false; } }
 function renderFocusUI(){
-  const f = $('#fdField'); f.hidden = !camOK || !fdOK();
+  $('#fdField').hidden = !camOK || !fdOK();
+  $('#bFocus').hidden = !camOK || S.mode !== 'camera' || !canFocus();
 }
 let fdManual = false;
 $('#rFd').oninput = e => {
@@ -1000,7 +1004,7 @@ function setMode(m){
   $('#mCam').setAttribute('aria-pressed', m === 'camera');
   $('#mLight').setAttribute('aria-pressed', m === 'light');
   $('#bTrack').hidden = m !== 'camera';
-  $('#bFocus').hidden = m !== 'camera';
+  $('#bFocus').hidden = m !== 'camera' || !canFocus();
   if (m !== 'camera') setFocusPick(false);
   if (m === 'light' && S.tracking) setTracking(false);
   $('#modeHint').textContent = m === 'light'
