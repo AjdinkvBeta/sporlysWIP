@@ -51,6 +51,7 @@ details summary{cursor:pointer}
   <!-- Kamera -->
   <section class="card" id="m-cam">
     <div class="view" id="camView" hidden><video id="video" playsinline muted autoplay></video><canvas class="ov" id="camOv"></canvas></div>
+    <p class="hint" id="roiHint" hidden>Læg den gule ramme over teksten. Træk i rammen for at flytte den, og i den gule prik for at ændre størrelsen. Tryk et andet sted for at flytte rammen derhen.</p>
     <div class="status" id="camStatus"><b></b><span>Tryk Start for at bruge kameraet.</span></div>
     <div class="row">
       <button class="btn accent" id="camStart">Start kamera</button>
@@ -232,14 +233,36 @@ async function getWorker(){
   workerLang = lang; return worker;
 }
 const STATUS = {'loading tesseract core': 'Henter tekstgenkendelse', 'initializing tesseract': 'Starter tekstgenkendelse', 'loading language traineddata': 'Henter sprogdata', 'initializing api': 'Gør klar', 'recognizing text': 'Læser tekst'};
+/* Frasortér "støj": figurer, mønstre og billeder, som genkendelsen fejlagtigt læser som bogstaver */
+function goodLine(l, cjk){
+  const t = l.text, letters = (t.match(/\p{L}/gu) || []).length, nonsp = t.replace(/\s/g, '').length;
+  if (letters < (cjk ? 1 : 3) || letters / Math.max(1, nonsp) < .65) return false;
+  if (l.conf < (cjk ? 55 : 62)) return false;
+  const ws = l.words || []; if (ws.length && ws.reduce((a, w) => a + w.confidence, 0) / ws.length < (cjk ? 50 : 58)) return false;
+  if (!cjk) {
+    const tok = t.split(' ').filter(Boolean), lens = tok.map(x => (x.match(/\p{L}/gu) || []).length);
+    if (lens.filter(n => n <= 1).length / tok.length > .34) return false;
+    if (lens.reduce((a, n) => a + n, 0) / tok.length < 2.4) return false;
+    if (!/[aeiouyæøåäöüéèáàíóúâêîôûœ]/i.test(t) && /\p{Script=Latin}/u.test(t)) return false;
+  }
+  return true;
+}
+function invertCanvas(c){ const o = document.createElement('canvas'); o.width = c.width; o.height = c.height; const x = o.getContext('2d'); x.drawImage(c, 0, 0); const im = x.getImageData(0, 0, o.width, o.height), d = im.data; for (let i = 0; i < d.length; i += 4) { d[i] = 255 - d[i]; d[i+1] = 255 - d[i+1]; d[i+2] = 255 - d[i+2]; } x.putImageData(im, 0, 0); return o; }
 async function ocr(canvas, statusEl, forceDetect){
+  const a = await ocrOnce(canvas, statusEl, forceDetect), score = r => r.lines.reduce((s, l) => s + l.text.length * l.conf, 0);
+  if (a.lines.length >= 2 && score(a) > 2000) return a;
+  // Lys tekst på mørk baggrund (fx undertekster): prøv også med omvendte farver
+  const b = await ocrOnce(invertCanvas(canvas), statusEl, false);
+  const best = score(b) > score(a) ? b : a; emptyRuns = best.lines.length ? 0 : emptyRuns; return best;
+}
+async function ocrOnce(canvas, statusEl, forceDetect){
   progressCb = m => setStatus(statusEl, 'busy', (STATUS[m.status] || 'Arbejder') + (m.progress > 0 && m.progress < 1 && m.status !== 'recognizing text' ? ` ${Math.round(m.progress * 100)} %` : '') + '…');
   if (FROM[ST.from][1] === 'auto') { setStatus(statusEl, 'busy', 'Finder alfabetet…'); await autoPick(canvas, forceDetect); }
   const w = await getWorker(), {data} = await w.recognize(canvas);
   progressCb = null;
   const cjk = /^(chi|jpn|kor|tha)/.test(curLang());
-  const lines = (data.lines || []).map(l => ({text: (cjk ? l.text.replace(/\s+/g, '') : l.text.replace(/\s+/g, ' ')).trim(), box: l.bbox, conf: l.confidence}))
-    .filter(l => l.text.length >= (cjk ? 1 : 2) && l.conf > 45 && /\p{L}/u.test(l.text));
+  const lines = (data.lines || []).map(l => ({text: (cjk ? l.text.replace(/\s+/g, '') : l.text.replace(/\s+/g, ' ')).trim(), box: l.bbox, conf: l.confidence, words: l.words}))
+    .filter(l => goodLine(l, cjk)).map(({words, ...l}) => l);
   emptyRuns = lines.length ? 0 : emptyRuns + 1;
   return {lines, text: lines.map(l => l.text).join('\n')};
 }
@@ -247,11 +270,18 @@ const scriptNote = () => FROM[ST.from][1] === 'auto' ? (osdFailed ? ' · alfabet
 function setStatus(el, cls, txt){ el.className = 'status ' + (cls || ''); el.querySelector('span').textContent = txt; }
 
 /* Tegn oversatte felter oven på teksten */
-function drawOverlay(cv, w, h, lines, showOrig){
-  cv.width = w; cv.height = h; const x = cv.getContext('2d'); x.clearRect(0, 0, w, h);
+function drawOverlay(cv, w, h, lines, showOrig, roi){
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const x = cv.getContext('2d'); x.clearRect(0, 0, w, h);
+  if (roi) { // læsefeltet: mørkt udenfor, hvid ramme
+    const rx = roi.x*w, ry = roi.y*h, rw = roi.w*w, rh = roi.h*h, lw = Math.max(2, w / 300);
+    x.fillStyle = 'rgba(0,0,0,.45)'; x.beginPath(); x.rect(0, 0, w, h); x.rect(rx, ry, rw, rh); x.fill('evenodd');
+    x.strokeStyle = '#f0b43c'; x.lineWidth = lw; x.strokeRect(rx, ry, rw, rh);
+    x.fillStyle = '#f0b43c'; x.beginPath(); x.arc(rx + rw, ry + rh, lw * 6, 0, 7); x.fill();
+  }
   if (showOrig) return;
   for (const l of lines) {
-    if (!l.tr) continue;
+    if (!l.tr || l.tr.trim().toLowerCase() === l.text.trim().toLowerCase()) continue;
     const {x0, y0, x1, y1} = l.box, bw = x1 - x0, bh = y1 - y0, pad = bh * .12;
     x.fillStyle = 'rgba(255,255,255,.93)'; x.beginPath(); if (x.roundRect) x.roundRect(x0 - pad, y0 - pad, bw + pad*2, bh + pad*2, bh * .2); else x.rect(x0 - pad, y0 - pad, bw + pad*2, bh + pad*2); x.fill();
     let fs = bh * .82; x.font = `600 ${fs}px system-ui, sans-serif`;
@@ -267,37 +297,75 @@ async function copy(t){ try { await navigator.clipboard.writeText(t); SL.toast('
 /* ---------- Kamera ---------- */
 const video = $('#video'), camOv = $('#camOv');
 let stream = null, frozen = false, running = false, camLines = [], camOrig = false, frameW = 0, frameH = 0;
-const grab = document.createElement('canvas');
+// Læsefeltet (andel af billedet). Kun teksten herinde læses, så resten af billedet ikke giver støj.
+let roi = {x: .06, y: .34, w: .88, h: .26};
+try { const r = JSON.parse(localStorage.getItem('sporlys:oversaet:roi') || 'null'); if (r && r.w > .1 && r.h > .05) roi = r; } catch (e) {}
+const saveRoi = () => { try { localStorage.setItem('sporlys:oversaet:roi', JSON.stringify(roi)); } catch (e) {} };
+function prep(src, sx, sy, sw, sh){
+  // Beskær til feltet, forstør så teksten bliver stor nok, gråtone og strak kontrast
+  const k = Math.max(1, Math.min(3, 1400 / sw)), c = document.createElement('canvas'); c.width = Math.round(sw * k); c.height = Math.round(sh * k);
+  const x = c.getContext('2d', {willReadFrequently: true}); x.imageSmoothingQuality = 'high'; x.drawImage(src, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  const im = x.getImageData(0, 0, c.width, c.height), d = im.data, hist = new Uint32Array(256), n = c.width * c.height;
+  for (let i = 0; i < d.length; i += 4) { const g = (d[i]*77 + d[i+1]*150 + d[i+2]*29) >> 8; d[i] = g; hist[g]++; }
+  let lo = 0, hi = 255, acc = 0; for (; lo < 255; lo++) { acc += hist[lo]; if (acc > n * .02) break; } acc = 0; for (; hi > 0; hi--) { acc += hist[hi]; if (acc > n * .02) break; }
+  const span = Math.max(30, hi - lo);
+  for (let i = 0; i < d.length; i += 4) { const v = Math.max(0, Math.min(255, (d[i] - lo) * 255 / span)); d[i] = d[i+1] = d[i+2] = v; }
+  x.putImageData(im, 0, 0); return {c, k};
+}
+function redrawCam(){ if (video.videoWidth) drawOverlay(camOv, video.videoWidth, video.videoHeight, camLines, camOrig, roi); }
 async function camLoop(){
   if (running) return; running = true;
   while (stream && !frozen && ST.mode === 'cam') {
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw) { await new Promise(r => setTimeout(r, 200)); continue; }
-    const k = Math.min(1, 1280 / Math.max(vw, vh)); grab.width = Math.round(vw * k); grab.height = Math.round(vh * k);
-    grab.getContext('2d').drawImage(video, 0, 0, grab.width, grab.height);
+    const sx = Math.round(roi.x * vw), sy = Math.round(roi.y * vh), sw = Math.round(roi.w * vw), sh = Math.round(roi.h * vh);
+    const {c, k} = prep(video, sx, sy, sw, sh);
     try {
-      const r = await ocr(grab, $('#camStatus'));
+      const r = await ocr(c, $('#camStatus'));
       if (frozen) break;
       const from = srcCode(r.text);
-      camLines = r.lines; frameW = grab.width; frameH = grab.height;
-      setStatus($('#camStatus'), 'busy', camLines.length ? 'Oversætter…' : 'Ingen tekst fundet. Hold kameraet roligt over teksten.' + scriptNote());
+      // Feltets koordinater tilbage til hele billedet
+      camLines = r.lines.map(l => ({...l, box: {x0: sx + l.box.x0 / k, y0: sy + l.box.y0 / k, x1: sx + l.box.x1 / k, y1: sy + l.box.y1 / k}}));
+      frameW = vw; frameH = vh;
+      setStatus($('#camStatus'), 'busy', camLines.length ? 'Oversætter…' : 'Ingen tekst i feltet. Flyt feltet hen over teksten, eller gå tættere på.' + scriptNote());
       if (camLines.length) {
         const tr = await translateMany(camLines.map(l => l.text), from); camLines.forEach((l, i) => l.tr = tr[i]);
-        setStatus($('#camStatus'), 'ok', `${camLines.length} linjer · ${FROM.find(f => f[2] === from) ? FROM.find(f => f[2] === from)[0] : from}${scriptNote()}`);
+        const same = from === ST.to || from === ST.to.split('-')[0];
+        setStatus($('#camStatus'), 'ok', `${camLines.length} ${camLines.length === 1 ? 'linje' : 'linjer'} · ${(FROM.find(f => f[2] === from) || [from])[0]}${same ? ' (samme sprog, ingen oversættelse)' : ''}${scriptNote()}`);
       }
-      drawOverlay(camOv, frameW, frameH, camLines, camOrig); renderLines($('#camLines'), camLines); $('#camCopyRow').hidden = !camLines.length;
+      redrawCam(); renderLines($('#camLines'), camLines); $('#camCopyRow').hidden = !camLines.length;
     } catch (e) { setStatus($('#camStatus'), '', e.message === 'kvote' ? 'Dagens gratis oversættelser er brugt op.' : (e.message || 'Noget gik galt.')); await new Promise(r => setTimeout(r, 1500)); }
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 250));
   }
   running = false;
 }
+/* Flyt og skalér læsefeltet med fingeren; tryk et sted for at flytte feltet derhen */
+(() => {
+  const view = $('#camView'); let drag = null;
+  const at = e => { const r = view.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]; };
+  view.style.touchAction = 'none';
+  view.addEventListener('pointerdown', e => {
+    const [px, py] = at(e), r = view.getBoundingClientRect(), near = Math.hypot((px - roi.x - roi.w) * r.width, (py - roi.y - roi.h) * r.height) < 34;
+    const inside = px > roi.x && px < roi.x + roi.w && py > roi.y && py < roi.y + roi.h;
+    if (!near && !inside) { roi.x = Math.min(1 - roi.w, Math.max(0, px - roi.w / 2)); roi.y = Math.min(1 - roi.h, Math.max(0, py - roi.h / 2)); }
+    drag = {mode: near ? 'size' : 'move', px, py, r0: {...roi}}; view.setPointerCapture(e.pointerId); camLines = []; redrawCam();
+  });
+  view.addEventListener('pointermove', e => {
+    if (!drag) return; const [px, py] = at(e), d = drag.r0;
+    if (drag.mode === 'move') { roi.x = Math.min(1 - d.w, Math.max(0, d.x + px - drag.px)); roi.y = Math.min(1 - d.h, Math.max(0, d.y + py - drag.py)); }
+    else { roi.w = Math.min(1 - d.x, Math.max(.15, d.w + px - drag.px)); roi.h = Math.min(1 - d.y, Math.max(.06, d.h + py - drag.py)); }
+    redrawCam();
+  });
+  const end = () => { if (drag) { drag = null; saveRoi(); } };
+  view.addEventListener('pointerup', end); view.addEventListener('pointercancel', end);
+})();
 $('#camStart').onclick = async () => {
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; $('#camView').hidden = true; $('#camStart').textContent = 'Start kamera'; $('#camFreeze').hidden = $('#camOrig').hidden = true; setStatus($('#camStatus'), '', 'Kameraet er slukket.'); return; }
   try {
     stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: {ideal: 'environment'}, width: {ideal: 1920}, height: {ideal: 1080}}, audio: false});
     video.srcObject = stream; await video.play().catch(() => {});
-    $('#camView').hidden = false; $('#camStart').textContent = 'Stop kamera'; $('#camFreeze').hidden = $('#camOrig').hidden = false; frozen = false; $('#camFreeze').textContent = 'Frys billedet';
-    setStatus($('#camStatus'), 'busy', 'Starter…'); camLoop();
+    $('#camView').hidden = false; $('#roiHint').hidden = false; $('#camStart').textContent = 'Stop kamera'; $('#camFreeze').hidden = $('#camOrig').hidden = false; frozen = false; $('#camFreeze').textContent = 'Frys billedet';
+    setStatus($('#camStatus'), 'busy', 'Starter…'); video.addEventListener('loadedmetadata', redrawCam, {once: true}); setTimeout(redrawCam, 400); camLoop();
   } catch (e) { setStatus($('#camStatus'), '', 'Kameraet kunne ikke startes. Tillad kameraet for siden i Safari, og prøv igen.'); }
 };
 $('#camFreeze').onclick = () => {
@@ -305,7 +373,7 @@ $('#camFreeze').onclick = () => {
   if (frozen) { video.pause(); setStatus($('#camStatus'), 'ok', 'Billedet er frosset. Læs i ro og mag.'); }
   else { video.play().catch(() => {}); camLoop(); }
 };
-$('#camOrig').onclick = () => { camOrig = !camOrig; $('#camOrig').setAttribute('aria-pressed', camOrig); drawOverlay(camOv, frameW, frameH, camLines, camOrig); };
+$('#camOrig').onclick = () => { camOrig = !camOrig; $('#camOrig').setAttribute('aria-pressed', camOrig); redrawCam(); };
 $('#camCopyT').onclick = () => copy(camLines.map(l => l.tr || '').join('\n'));
 $('#camCopyO').onclick = () => copy(camLines.map(l => l.text).join('\n'));
 
