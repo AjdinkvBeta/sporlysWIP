@@ -4,7 +4,10 @@ const APPS = [
   {href: 'index.html', name: 'Sporlys', desc: 'Tegn efter en skitse med kameraet', ico: '<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/>'},
   {href: 'scanner.html', name: 'Scanner', desc: 'Scan dokumenter til PDF', ico: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M4 12h16"/>'},
   {href: 'moenster.html', name: 'Mønster', desc: 'Perleplader, korssting og pixel art', ico: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>'},
-  {href: 'filer.html', name: 'Filer', desc: 'Zip, billeder og PDF', ico: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/>'}
+  {href: 'oversaet.html', name: 'Oversæt', desc: 'Oversæt tekst fra kamera, billeder og skrift', ico: '<path d="M4 5h9M8 3v2M6 5c1 4 4 7 7 8M11 5c-1 4-4 7-7 8"/><path d="M13 21l4-9 4 9M14.5 18h5"/>'},
+  {href: 'pdf.html', name: 'PDF', desc: 'Skriv, tegn og underskriv i PDF\'er', ico: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/><path d="M9 16l5-5 2 2-5 5H9z"/>'},
+  {href: 'qr.html', name: 'QR-kode', desc: 'Lav QR-koder til links, wifi og kontakter', ico: '<rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2"/>'},
+  {href: 'filer.html', name: 'Filer', desc: 'Konvertér filer, zip og PDF-sider', ico: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/>'}
 ];
 const here = (location.pathname.split('/').pop() || 'index.html');
 function openMenu(){

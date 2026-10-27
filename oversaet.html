@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Oversæt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/menu.css">
+<style>
+.langs{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:8px;align-items:end}
+.langs select{width:100%}
+#swap{margin-bottom:2px}
+.view{position:relative;border-radius:14px;overflow:hidden;background:#000;line-height:0}
+.view video,.view img,.view canvas.base{width:100%;height:auto;display:block}
+.view canvas.ov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.status{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);min-height:20px}
+.status b{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.status.busy b{background:var(--accent)}
+.status.ok b{background:var(--ok)}
+.lines{display:grid;gap:6px}
+.ln{background:var(--panel2);border-radius:10px;padding:8px 10px;display:grid;gap:2px}
+.ln .o{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.ln .t{font-weight:700;overflow-wrap:anywhere}
+textarea{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-height:120px;resize:vertical;font:inherit;color:inherit}
+.out{background:var(--panel2);border-radius:12px;padding:12px;min-height:60px;white-space:pre-wrap;overflow-wrap:anywhere}
+details summary{cursor:pointer}
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="appbtn" data-appmenu aria-label="Skift værktøj"><i></i>Oversæt<span class="chev">▾</span></button>
+  <div class="spacer"></div>
+</header>
+<main>
+  <section class="card">
+    <div class="langs">
+      <div class="field"><label class="label" for="from">Fra</label><select id="from"></select></div>
+      <button class="ib" id="swap" aria-label="Byt sprog" title="Byt sprog"><svg viewBox="0 0 24 24"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg></button>
+      <div class="field"><label class="label" for="to">Til</label><select id="to"></select></div>
+    </div>
+    <div class="seg" role="group" aria-label="Kilde" id="modes">
+      <button data-m="cam" aria-pressed="true">Kamera</button>
+      <button data-m="img" aria-pressed="false">Billede</button>
+      <button data-m="txt" aria-pressed="false">Skriv</button>
+    </div>
+  </section>
+
+  <!-- Kamera -->
+  <section class="card" id="m-cam">
+    <div class="view" id="camView" hidden><video id="video" playsinline muted autoplay></video><canvas class="ov" id="camOv"></canvas></div>
+    <div class="status" id="camStatus"><b></b><span>Tryk Start for at bruge kameraet.</span></div>
+    <div class="row">
+      <button class="btn accent" id="camStart">Start kamera</button>
+      <button class="btn ghost" id="camFreeze" hidden>Frys billedet</button>
+      <button class="chip" id="camOrig" aria-pressed="false" hidden>Vis original</button>
+    </div>
+    <div class="lines" id="camLines"></div>
+    <div class="row" id="camCopyRow" hidden><button class="btn ghost" id="camCopyT">Kopiér oversættelse</button><button class="btn ghost" id="camCopyO">Kopiér original</button></div>
+  </section>
+
+  <!-- Billede -->
+  <section class="card" id="m-img" hidden>
+    <div class="row">
+      <label class="btn accent" for="imgCam">Tag billede</label>
+      <label class="btn ghost" for="imgPick">Vælg billede</label>
+    </div>
+    <input type="file" id="imgCam" accept="image/*" capture="environment" hidden>
+    <input type="file" id="imgPick" accept="image/*" hidden>
+    <div class="view" id="imgView" hidden><canvas class="base" id="imgBase"></canvas><canvas class="ov" id="imgOv"></canvas></div>
+    <div class="status" id="imgStatus"><b></b><span>Vælg et billede med tekst.</span></div>
+    <div class="row" id="imgCtl" hidden><button class="chip" id="imgOrig" aria-pressed="false">Vis original</button></div>
+    <div class="field" id="imgText" hidden>
+      <span class="label">Tekst i billedet</span><div class="out" id="imgO"></div>
+      <span class="label">Oversat</span><div class="out" id="imgT"></div>
+      <div class="row"><button class="btn ghost" id="imgCopyO">Kopiér tekst</button><button class="btn ghost" id="imgCopyT">Kopiér oversættelse</button></div>
+    </div>
+  </section>
+
+  <!-- Skriv -->
+  <section class="card" id="m-txt" hidden>
+    <textarea id="src" placeholder="Skriv eller indsæt tekst"></textarea>
+    <div class="row"><button class="btn accent" id="txtGo">Oversæt</button><span class="hint" id="detected"></span></div>
+    <div class="out" id="txtOut" aria-live="polite"></div>
+    <div class="row"><button class="btn ghost" id="txtCopy">Kopiér</button></div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary><b>Oversættelsestjeneste</b> <span class="hint" id="provLabel"></span></summary>
+      <div class="sub" style="display:grid;gap:12px;margin-top:12px">
+        <div class="seg" role="group" aria-label="Tjeneste" id="prov">
+          <button data-v="mm" aria-pressed="true">MyMemory (gratis)</button>
+          <button data-v="g" aria-pressed="false">Google (egen nøgle)</button>
+        </div>
+        <div class="field" id="mmField"><label class="label" for="mmEmail">E-mail (valgfri)</label><input type="text" id="mmEmail" inputmode="email" autocomplete="email" placeholder="giver 10 gange så meget oversættelse pr. dag">
+          <p class="hint">MyMemory er gratis uden konto. Uden e-mail kan man oversætte omkring 5.000 tegn om dagen, med e-mail omkring 50.000.</p></div>
+        <div class="field" id="gField" hidden><label class="label" for="gKey">Google Cloud API-nøgle</label><input type="text" id="gKey" autocomplete="off" placeholder="AIza…">
+          <p class="hint">Med en nøgle til Cloud Translation API kan du oversætte op til 500.000 tegn om måneden gratis. Nøglen gemmes kun på denne telefon.</p></div>
+        <p class="hint">Teksten genkendes på telefonen. Kun selve teksten sendes til oversættelsestjenesten, aldrig billedet.</p>
+      </div>
+    </details>
+  </section>
+</main>
+<script src="assets/common.js"></script>
+<script>
+(() => {
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+/* Sprog: [navn, tesseract-kode, oversættelseskode] */
+const FROM = [
+  ['Europæiske (latinske bogstaver)', 'eng+dan+deu+fra+spa+ita+por+nld+swe+nor', 'auto'],
+  ['Engelsk', 'eng', 'en'], ['Dansk', 'dan', 'da'], ['Tysk', 'deu', 'de'], ['Fransk', 'fra', 'fr'], ['Spansk', 'spa', 'es'], ['Italiensk', 'ita', 'it'],
+  ['Portugisisk', 'por', 'pt'], ['Hollandsk', 'nld', 'nl'], ['Svensk', 'swe', 'sv'], ['Norsk', 'nor', 'no'], ['Finsk', 'fin', 'fi'], ['Polsk', 'pol', 'pl'],
+  ['Tjekkisk', 'ces', 'cs'], ['Kroatisk', 'hrv', 'hr'], ['Bosnisk', 'bos', 'bs'], ['Serbisk (latinsk)', 'srp_latn', 'sr'], ['Serbisk (kyrillisk)', 'srp', 'sr'],
+  ['Russisk', 'rus', 'ru'], ['Ukrainsk', 'ukr', 'uk'], ['Bulgarsk', 'bul', 'bg'], ['Græsk', 'ell', 'el'], ['Tyrkisk', 'tur', 'tr'], ['Ungarsk', 'hun', 'hu'], ['Rumænsk', 'ron', 'ro'],
+  ['Arabisk', 'ara', 'ar'], ['Hebraisk', 'heb', 'he'], ['Persisk', 'fas', 'fa'], ['Hindi', 'hin', 'hi'], ['Thai', 'tha', 'th'], ['Vietnamesisk', 'vie', 'vi'],
+  ['Kinesisk (forenklet)', 'chi_sim', 'zh-CN'], ['Kinesisk (traditionel)', 'chi_tra', 'zh-TW'], ['Japansk', 'jpn', 'ja'], ['Koreansk', 'kor', 'ko'], ['Indonesisk', 'ind', 'id']
+];
+const TO = [['Dansk', 'da'], ['Engelsk', 'en'], ['Tysk', 'de'], ['Svensk', 'sv'], ['Norsk', 'no'], ['Fransk', 'fr'], ['Spansk', 'es'], ['Italiensk', 'it'], ['Polsk', 'pl'],
+  ['Bosnisk', 'bs'], ['Kroatisk', 'hr'], ['Serbisk', 'sr'], ['Tyrkisk', 'tr'], ['Russisk', 'ru'], ['Ukrainsk', 'uk'], ['Arabisk', 'ar'], ['Kinesisk', 'zh-CN'], ['Japansk', 'ja'], ['Koreansk', 'ko'], ['Thai', 'th']];
+const ST = {from: 1, to: 'da', mode: 'cam', prov: 'mm', email: '', key: ''};
+try { Object.assign(ST, JSON.parse(localStorage.getItem('sporlys:oversaet') || '{}')); } catch (e) {}
+const saveST = () => { try { localStorage.setItem('sporlys:oversaet', JSON.stringify(ST)); } catch (e) {} };
+$('#from').innerHTML = FROM.map(([n], i) => `<option value="${i}">${n}</option>`).join('');
+$('#to').innerHTML = TO.map(([n, c]) => `<option value="${c}">${n}</option>`).join('');
+$('#from').value = ST.from; $('#to').value = ST.to;
+
+/* ---------- Gæt sprog ud fra skrifttegn og almindelige ord ---------- */
+function guessLang(t){
+  const c = re => (t.match(re) || []).length;
+  if (c(/[぀-ヿ]/g) > 1) return 'ja'; if (c(/[가-힯]/g) > 1) return 'ko'; if (c(/[一-鿿]/g) > 1) return 'zh-CN';
+  if (c(/[Ѐ-ӿ]/g) > 2) return c(/[іїєґ]/gi) ? 'uk' : c(/[ђћџљњ]/gi) ? 'sr' : 'ru';
+  if (c(/[؀-ۿ]/g) > 2) return c(/[پچژگ]/g) ? 'fa' : 'ar'; if (c(/[֐-׿]/g) > 2) return 'he';
+  if (c(/[฀-๿]/g) > 2) return 'th'; if (c(/[ऀ-ॿ]/g) > 2) return 'hi'; if (c(/[Ͱ-Ͽ]/g) > 2) return 'el';
+  const w = ' ' + t.toLowerCase().replace(/[^\p{L}\s]/gu, ' ') + ' ', score = {};
+  const SW = {en: 'the and is are you of to in that it for with this', da: 'og er det at en til på ikke jeg med som har af', de: 'und ist der die das nicht ich mit sie ein zu von', fr: 'le la les et est des une pas que vous je pour',
+    es: 'el la los y es de que no un una por para', it: 'il la e di che non per un una sono è', pt: 'o a os e de que não um uma para com', nl: 'de het en is een van niet dat ik je',
+    sv: 'och är det att en på inte jag med som', no: 'og er det at en på ikke jeg med som av', pl: 'i w nie na jest się że to z do', tr: 've bir bu da de için ne ile', bs: 'i je da u se na ne za su sa'};
+  for (const [l, ws] of Object.entries(SW)) score[l] = ws.split(' ').reduce((a, x) => a + (w.split(' ' + x + ' ').length - 1), 0);
+  if (/[æø]/i.test(t)) score.da += 2, score.no += 2; if (/[äöü]/i.test(t)) score.de += 1, score.sv += 1; if (/ß/.test(t)) score.de += 3; if (/[čćšžđ]/i.test(t)) score.bs += 3;
+  const best = Object.entries(score).sort((a, b) => b[1] - a[1])[0];
+  return best && best[1] > 0 ? best[0] : 'en';
+}
+const srcCode = text => { const c = FROM[ST.from][2]; return c === 'auto' ? guessLang(text) : c; };
+
+/* ---------- Oversættelse ---------- */
+const cache = new Map();
+try { for (const [k, v] of JSON.parse(localStorage.getItem('sporlys:oversaet:cache') || '[]')) cache.set(k, v); } catch (e) {}
+let cacheT = 0; const saveCache = () => { clearTimeout(cacheT); cacheT = setTimeout(() => { try { localStorage.setItem('sporlys:oversaet:cache', JSON.stringify([...cache].slice(-600))); } catch (e) {} }, 800); };
+const decode = s => { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; };
+let quotaWarned = false;
+async function translateMany(texts, from){
+  const to = ST.to, out = new Array(texts.length), need = [];
+  texts.forEach((t, i) => { const k = `${from}|${to}|${t}`; if (from === to.split('-')[0] || from === to) out[i] = t; else if (cache.has(k)) out[i] = cache.get(k); else need.push(i); });
+  if (!need.length) return out;
+  if (ST.prov === 'g' && ST.key) {
+    for (let s = 0; s < need.length; s += 50) {
+      const part = need.slice(s, s + 50);
+      const r = await fetch('https://translation.googleapis.com/language/translate/v2?key=' + encodeURIComponent(ST.key), {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({q: part.map(i => texts[i]), target: to, format: 'text', ...(from !== 'auto' ? {source: from} : {})})});
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error && j.error.message ? 'Google: ' + j.error.message : 'Google svarede ikke');
+      part.forEach((i, n) => { out[i] = decode(j.data.translations[n].translatedText); cache.set(`${from}|${to}|${texts[i]}`, out[i]); });
+    }
+  } else {
+    // MyMemory: højst ca. 500 bytes pr. kald, et par kald ad gangen
+    let next = 0;
+    const work = async () => {
+      while (next < need.length) {
+        const i = need[next++], q = texts[i].slice(0, 450);
+        const u = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=${encodeURIComponent(from)}|${encodeURIComponent(to)}${ST.email ? '&de=' + encodeURIComponent(ST.email) : ''}`;
+        const r = await fetch(u), j = await r.json(), t = j && j.responseData && j.responseData.translatedText || '';
+        if (j.responseStatus == 429 || /MYMEMORY WARNING|QUOTA/i.test(t)) {
+          if (!quotaWarned) { quotaWarned = true; SL.toast('Dagens gratis oversættelser er brugt op. Skriv din e-mail eller en Google-nøgle under Oversættelsestjeneste.', 7000); }
+          throw new Error('kvote');
+        }
+        if (j.responseStatus != 200) throw new Error(j.responseDetails || 'Oversættelsen fejlede');
+        out[i] = decode(t); cache.set(`${from}|${to}|${texts[i]}`, out[i]);
+      }
+    };
+    await Promise.all([work(), work(), work()]);
+  }
+  saveCache();
+  return out;
+}
+
+/* ---------- Tekstgenkendelse (Tesseract, hentes første gang) ---------- */
+let tessP = null, worker = null, workerLang = '';
+function loadTess(){
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  return tessP || (tessP = new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    s.onload = () => res(window.Tesseract); s.onerror = () => { tessP = null; rej(new Error('Tekstgenkendelsen kunne ikke hentes. Tjek internetforbindelsen.')); };
+    document.head.appendChild(s);
+  }));
+}
+let progressCb = null;
+async function getWorker(){
+  const lang = FROM[ST.from][1];
+  if (worker && workerLang === lang) return worker;
+  const T = await loadTess();
+  if (worker) { try { await worker.terminate(); } catch (e) {} worker = null; }
+  worker = await T.createWorker(lang, 1, {logger: m => { if (progressCb && m.status) progressCb(m); }});
+  workerLang = lang; return worker;
+}
+const STATUS = {'loading tesseract core': 'Henter tekstgenkendelse', 'initializing tesseract': 'Starter tekstgenkendelse', 'loading language traineddata': 'Henter sprogdata', 'initializing api': 'Gør klar', 'recognizing text': 'Læser tekst'};
+async function ocr(canvas, statusEl){
+  progressCb = m => setStatus(statusEl, 'busy', (STATUS[m.status] || 'Arbejder') + (m.progress > 0 && m.progress < 1 && m.status !== 'recognizing text' ? ` ${Math.round(m.progress * 100)} %` : '') + '…');
+  const w = await getWorker(), {data} = await w.recognize(canvas);
+  progressCb = null;
+  const cjk = /^(chi|jpn|kor|tha)/.test(FROM[ST.from][1]);
+  const lines = (data.lines || []).map(l => ({text: (cjk ? l.text.replace(/\s+/g, '') : l.text.replace(/\s+/g, ' ')).trim(), box: l.bbox, conf: l.confidence}))
+    .filter(l => l.text.length >= (cjk ? 1 : 2) && l.conf > 45 && /\p{L}/u.test(l.text));
+  return {lines, text: lines.map(l => l.text).join('\n')};
+}
+function setStatus(el, cls, txt){ el.className = 'status ' + (cls || ''); el.querySelector('span').textContent = txt; }
+
+/* Tegn oversatte felter oven på teksten */
+function drawOverlay(cv, w, h, lines, showOrig){
+  cv.width = w; cv.height = h; const x = cv.getContext('2d'); x.clearRect(0, 0, w, h);
+  if (showOrig) return;
+  for (const l of lines) {
+    if (!l.tr) continue;
+    const {x0, y0, x1, y1} = l.box, bw = x1 - x0, bh = y1 - y0, pad = bh * .12;
+    x.fillStyle = 'rgba(255,255,255,.93)'; x.beginPath(); if (x.roundRect) x.roundRect(x0 - pad, y0 - pad, bw + pad*2, bh + pad*2, bh * .2); else x.rect(x0 - pad, y0 - pad, bw + pad*2, bh + pad*2); x.fill();
+    let fs = bh * .82; x.font = `600 ${fs}px system-ui, sans-serif`;
+    const tw = x.measureText(l.tr).width; if (tw > bw + pad*2) { fs *= (bw + pad*2) / tw; x.font = `600 ${fs}px system-ui, sans-serif`; }
+    x.fillStyle = '#111'; x.textBaseline = 'middle'; x.fillText(l.tr, x0, y0 + bh / 2, bw + pad*2);
+  }
+}
+function renderLines(box, lines){
+  box.innerHTML = lines.map(l => `<div class="ln"><span class="o">${SL.esc(l.text)}</span><span class="t">${SL.esc(l.tr || '…')}</span></div>`).join('');
+}
+async function copy(t){ try { await navigator.clipboard.writeText(t); SL.toast('Kopieret'); } catch (e) { SL.toast('Kunne ikke kopiere'); } }
+
+/* ---------- Kamera ---------- */
+const video = $('#video'), camOv = $('#camOv');
+let stream = null, frozen = false, running = false, camLines = [], camOrig = false, frameW = 0, frameH = 0;
+const grab = document.createElement('canvas');
+async function camLoop(){
+  if (running) return; running = true;
+  while (stream && !frozen && ST.mode === 'cam') {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw) { await new Promise(r => setTimeout(r, 200)); continue; }
+    const k = Math.min(1, 1280 / Math.max(vw, vh)); grab.width = Math.round(vw * k); grab.height = Math.round(vh * k);
+    grab.getContext('2d').drawImage(video, 0, 0, grab.width, grab.height);
+    try {
+      const r = await ocr(grab, $('#camStatus'));
+      if (frozen) break;
+      const from = srcCode(r.text);
+      camLines = r.lines; frameW = grab.width; frameH = grab.height;
+      setStatus($('#camStatus'), 'busy', camLines.length ? 'Oversætter…' : 'Ingen tekst fundet. Hold kameraet roligt over teksten.');
+      if (camLines.length) {
+        const tr = await translateMany(camLines.map(l => l.text), from); camLines.forEach((l, i) => l.tr = tr[i]);
+        setStatus($('#camStatus'), 'ok', `${camLines.length} linjer · ${FROM.find(f => f[2] === from) ? FROM.find(f => f[2] === from)[0] : from}`);
+      }
+      drawOverlay(camOv, frameW, frameH, camLines, camOrig); renderLines($('#camLines'), camLines); $('#camCopyRow').hidden = !camLines.length;
+    } catch (e) { setStatus($('#camStatus'), '', e.message === 'kvote' ? 'Dagens gratis oversættelser er brugt op.' : (e.message || 'Noget gik galt.')); await new Promise(r => setTimeout(r, 1500)); }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  running = false;
+}
+$('#camStart').onclick = async () => {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; $('#camView').hidden = true; $('#camStart').textContent = 'Start kamera'; $('#camFreeze').hidden = $('#camOrig').hidden = true; setStatus($('#camStatus'), '', 'Kameraet er slukket.'); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: {ideal: 'environment'}, width: {ideal: 1920}, height: {ideal: 1080}}, audio: false});
+    video.srcObject = stream; await video.play().catch(() => {});
+    $('#camView').hidden = false; $('#camStart').textContent = 'Stop kamera'; $('#camFreeze').hidden = $('#camOrig').hidden = false; frozen = false; $('#camFreeze').textContent = 'Frys billedet';
+    setStatus($('#camStatus'), 'busy', 'Starter…'); camLoop();
+  } catch (e) { setStatus($('#camStatus'), '', 'Kameraet kunne ikke startes. Tillad kameraet for siden i Safari, og prøv igen.'); }
+};
+$('#camFreeze').onclick = () => {
+  frozen = !frozen; $('#camFreeze').textContent = frozen ? 'Fortsæt' : 'Frys billedet';
+  if (frozen) { video.pause(); setStatus($('#camStatus'), 'ok', 'Billedet er frosset. Læs i ro og mag.'); }
+  else { video.play().catch(() => {}); camLoop(); }
+};
+$('#camOrig').onclick = () => { camOrig = !camOrig; $('#camOrig').setAttribute('aria-pressed', camOrig); drawOverlay(camOv, frameW, frameH, camLines, camOrig); };
+$('#camCopyT').onclick = () => copy(camLines.map(l => l.tr || '').join('\n'));
+$('#camCopyO').onclick = () => copy(camLines.map(l => l.text).join('\n'));
+
+/* ---------- Billede ---------- */
+let imgLines = [], imgOrig = false;
+async function doImage(f){
+  if (!f) return;
+  const base = $('#imgBase');
+  try {
+    const im = await SL.loadImage(f), k = Math.min(1, 2000 / Math.max(im.naturalWidth, im.naturalHeight));
+    base.width = Math.round(im.naturalWidth * k); base.height = Math.round(im.naturalHeight * k); base.getContext('2d').drawImage(im, 0, 0, base.width, base.height); URL.revokeObjectURL(im.src);
+  } catch (e) { setStatus($('#imgStatus'), '', 'Billedet kunne ikke åbnes.'); return; }
+  $('#imgView').hidden = false; $('#imgText').hidden = true; $('#imgCtl').hidden = true; drawOverlay($('#imgOv'), base.width, base.height, [], false);
+  try {
+    const r = await ocr(base, $('#imgStatus')); imgLines = r.lines;
+    if (!imgLines.length) { setStatus($('#imgStatus'), '', 'Der blev ikke fundet tekst. Prøv et skarpere billede, eller vælg det rigtige sprog under Fra.'); return; }
+    $('#imgO').textContent = r.text; $('#imgText').hidden = false; $('#imgT').textContent = '…';
+    setStatus($('#imgStatus'), 'busy', 'Oversætter…');
+    const from = srcCode(r.text), tr = await translateMany(imgLines.map(l => l.text), from); imgLines.forEach((l, i) => l.tr = tr[i]);
+    $('#imgT').textContent = tr.join('\n'); $('#imgCtl').hidden = false;
+    drawOverlay($('#imgOv'), base.width, base.height, imgLines, imgOrig); setStatus($('#imgStatus'), 'ok', `${imgLines.length} linjer oversat`);
+  } catch (e) { setStatus($('#imgStatus'), '', e.message === 'kvote' ? 'Dagens gratis oversættelser er brugt op. Teksten står herunder.' : (e.message || 'Noget gik galt.')); }
+}
+$('#imgCam').onchange = e => { const f = e.target.files[0]; e.target.value = ''; doImage(f); };
+$('#imgPick').onchange = e => { const f = e.target.files[0]; e.target.value = ''; doImage(f); };
+$('#imgOrig').onclick = () => { imgOrig = !imgOrig; $('#imgOrig').setAttribute('aria-pressed', imgOrig); drawOverlay($('#imgOv'), $('#imgBase').width, $('#imgBase').height, imgLines, imgOrig); };
+$('#imgCopyO').onclick = () => copy($('#imgO').textContent);
+$('#imgCopyT').onclick = () => copy($('#imgT').textContent);
+
+/* ---------- Skriv ---------- */
+$('#txtGo').onclick = async () => {
+  const t = $('#src').value.trim(); if (!t) return;
+  const from = srcCode(t), name = (FROM.find(f => f[2] === from) || TO.find(f => f[1] === from) || [from])[0];
+  $('#detected').textContent = FROM[ST.from][2] === 'auto' ? 'Gættet sprog: ' + name : '';
+  $('#txtOut').textContent = 'Oversætter…';
+  try {
+    // Del op i afsnit, så lange tekster kan oversættes
+    const parts = t.split(/\n/), tr = await translateMany(parts.map(p => p.trim()).filter(Boolean), from); let k = 0;
+    $('#txtOut').textContent = parts.map(p => p.trim() ? tr[k++] : '').join('\n');
+  } catch (e) { $('#txtOut').textContent = e.message === 'kvote' ? 'Dagens gratis oversættelser er brugt op.' : (e.message || 'Oversættelsen fejlede.'); }
+};
+$('#txtCopy').onclick = () => copy($('#txtOut').textContent);
+
+/* ---------- Indstillinger ---------- */
+function setMode(m){
+  ST.mode = m; saveST(); $$('#modes button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === m));
+  for (const k of ['cam', 'img', 'txt']) $('#m-' + k).hidden = k !== m;
+  if (m !== 'cam' && stream) $('#camStart').click();
+}
+$$('#modes button').forEach(b => b.onclick = () => setMode(b.dataset.m));
+function syncProv(){
+  $$('#prov button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === ST.prov));
+  $('#mmField').hidden = ST.prov !== 'mm'; $('#gField').hidden = ST.prov !== 'g';
+  $('#provLabel').textContent = ST.prov === 'g' ? '· Google' : '· MyMemory';
+}
+$$('#prov button').forEach(b => b.onclick = () => { ST.prov = b.dataset.v; saveST(); syncProv(); });
+$('#mmEmail').value = ST.email; $('#gKey').value = ST.key;
+$('#mmEmail').onchange = e => { ST.email = e.target.value.trim(); saveST(); };
+$('#gKey').onchange = e => { ST.key = e.target.value.trim(); saveST(); };
+$('#from').onchange = e => { ST.from = +e.target.value; saveST(); };
+$('#to').onchange = e => { ST.to = e.target.value; saveST(); };
+$('#swap').onclick = () => {
+  const f = FROM[ST.from][2], t = ST.to, ni = FROM.findIndex(x => x[2] === t);
+  if (ni < 0 || f === 'auto' || !TO.find(x => x[1] === f)) { SL.toast('De to sprog kan ikke byttes om.'); return; }
+  ST.from = ni; ST.to = f; $('#from').value = ni; $('#to').value = f; saveST();
+};
+syncProv(); setMode(ST.mode);
+window.SLtr = {guessLang};
+})();
+</script>
+</body>
+</html>

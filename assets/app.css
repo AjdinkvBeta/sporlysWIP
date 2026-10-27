@@ -21,12 +21,14 @@ button,input,select{font:inherit;color:inherit}
 .appbtn i{width:10px;height:22px;border-radius:2px;background:var(--accent);transform:rotate(18deg);display:inline-block}
 .appbtn .chev{font:700 13px var(--body);color:var(--muted)}
 .spacer{flex:1}
-main{max-width:760px;margin:0 auto;padding-top:16px;display:grid;gap:18px}
+main{max-width:760px;margin:0 auto;padding-top:16px;display:grid;gap:18px;grid-template-columns:minmax(0,1fr)}
+main>*,.card>*,.sub>*,.field>*{min-width:0}
+img,canvas,video{max-width:100%}
 h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance}
 h2{font-size:18px}
 .label{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700}
 .hint{color:var(--muted);font-size:13px;margin:0}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;display:grid;gap:12px;min-width:0}
+.card{grid-template-columns:minmax(0,1fr);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;display:grid;gap:12px;min-width:0}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .btn{border:0;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer;background:var(--fg);color:var(--ink);display:inline-flex;align-items:center;gap:8px;text-decoration:none}
 .btn.accent{background:var(--accent);color:var(--accent-ink)}
@@ -34,7 +36,7 @@ h2{font-size:18px}
 .btn:disabled{opacity:.4;cursor:default}
 .chip{border:1px solid var(--line);background:#ffffff08;border-radius:999px;padding:8px 14px;cursor:pointer;font-weight:700;font-size:14px}
 .chip[aria-pressed="true"]{background:var(--fg);color:var(--ink);border-color:var(--fg)}
-.seg{display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:3px;width:max-content;max-width:100%;overflow-x:auto}
+.seg{display:flex;flex-wrap:wrap;gap:2px;background:var(--panel2);border:1px solid var(--line);border-radius:18px;padding:3px;width:fit-content;max-width:100%}
 .seg button{border:0;background:none;padding:7px 14px;border-radius:999px;cursor:pointer;font-weight:700;font-size:14px;color:var(--muted);white-space:nowrap}
 .seg button[aria-pressed="true"]{background:var(--fg);color:var(--ink)}
 .field{display:grid;gap:6px}

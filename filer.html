@@ -23,13 +23,33 @@
 
 <main>
   <div class="seg" role="tablist" aria-label="Værktøj" id="tabs">
-    <button data-tab="zip" aria-pressed="true">Zip</button>
+    <button data-tab="conv" aria-pressed="true">Konvertér</button>
+    <button data-tab="zip" aria-pressed="false">Zip</button>
     <button data-tab="img" aria-pressed="false">Billeder</button>
     <button data-tab="pdf" aria-pressed="false">PDF</button>
   </div>
 
+  <!-- KONVERTÉR -->
+  <section id="t-conv" class="sub">
+    <div class="card">
+      <h2>Konvertér filer</h2>
+      <label class="drop" for="cIn"><b>Vælg filer</b><span class="hint" id="cKinds"></span></label>
+      <input type="file" id="cIn" multiple hidden>
+      <div id="cOut" class="sub" hidden>
+        <div class="list" id="cList"></div>
+        <div class="field"><span class="label" id="cToLabel">Konvertér til</span><div class="seg" role="group" aria-label="Konvertér til" id="cTo"></div></div>
+        <div class="row"><button class="btn accent" id="cGo">Konvertér</button><button class="btn ghost" id="cClear">Ryd</button></div>
+        <div class="progress" id="cProg" hidden><b></b></div>
+      </div>
+      <div id="cRes" class="sub" hidden>
+        <div class="row" style="justify-content:space-between"><b>Færdige filer</b><button class="btn ghost" id="cAll">Gem alle</button></div>
+        <div class="list" id="cResList"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ZIP -->
-  <section id="t-zip" class="sub">
+  <section id="t-zip" class="sub" hidden>
     <div class="card">
       <h2>Pak en zip-fil ud</h2>
       <label class="drop" for="zIn"><b>Vælg zip-fil</b><span class="hint">Se indholdet og gem de filer, du skal bruge.</span></label>
@@ -125,6 +145,7 @@
 </main>
 
 <script src="assets/common.js"></script>
+<script src="assets/convert.js"></script>
 <script>
 (() => {
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
@@ -159,7 +180,7 @@ const uniq = (name, used) => { let n = name, i = 2; while (used.has(n)) { n = na
 /* Faner */
 $$('#tabs button').forEach(b => b.onclick = () => {
   $$('#tabs button').forEach(x => x.setAttribute('aria-pressed', x === b));
-  for (const t of ['zip', 'img', 'pdf']) $('#t-' + t).hidden = t !== b.dataset.tab;
+  for (const t of ['conv', 'zip', 'img', 'pdf']) $('#t-' + t).hidden = t !== b.dataset.tab;
   try { localStorage.setItem('sporlys:filer:tab', b.dataset.tab); } catch (e) {}
 });
 try { const t = localStorage.getItem('sporlys:filer:tab'); if (t) $(`#tabs [data-tab="${t}"]`)?.click(); } catch (e) {}
@@ -189,6 +210,47 @@ function orderList(box, arr, render, onChange){
 }
 const fileRow = f => `${isImg(f.name) && f._url ? `<img alt="" src="${f._url}">` : `<span class="fi">${SL.esc(ext(f.name) || 'fil')}</span>`}<span class="name">${SL.esc(f.name)}</span><small>${SL.fmtBytes(f.size)}</small>`;
 const withUrl = files => files.map(f => { if (isImg(f.name) || /^image\//.test(f.type)) f._url = URL.createObjectURL(f); return f; });
+
+/* ---------- KONVERTÉR ---------- */
+const CV = window.CONV;
+$('#cKinds').textContent = 'Billeder (også HEIC), PDF, Word, Markdown, tekst, HTML, CSV, Excel, JSON, YAML, XML, lyd og video.';
+let cFiles = [], cTarget = null, cResults = [];
+function cKind(){ const ks = [...new Set(cFiles.map(f => CV.kindOf(f)).filter(Boolean))]; return ks.length === 1 ? ks[0] : ks.length ? 'mixed' : null; }
+function cRender(){
+  orderList($('#cList'), cFiles, f => { const k = CV.kindOf(f); return fileRow(f) + `<small style="color:${k ? 'var(--muted)' : 'var(--bad)'}">${k ? CV.LABEL[k] : 'Ukendt'}</small>`; }, () => { cResults = []; cRender(); });
+  $('#cOut').hidden = !cFiles.length;
+  const k = cKind(), box = $('#cTo'); box.innerHTML = '';
+  if (k === 'mixed') { $('#cToLabel').textContent = 'Vælg filer af samme slags for at konvertere dem sammen'; $('#cGo').disabled = true; return; }
+  if (!k) { $('#cToLabel').textContent = cFiles.length ? 'Den filtype kan ikke konverteres her' : ''; $('#cGo').disabled = true; return; }
+  $('#cToLabel').textContent = `${CV.LABEL[k]} → konvertér til`; const ts = CV.TARGETS[k];
+  if (!ts.find(t => t.id === cTarget)) cTarget = ts[0].id;
+  for (const t of ts) { const b = document.createElement('button'); b.textContent = t.label; b.setAttribute('aria-pressed', t.id === cTarget); b.onclick = () => { cTarget = t.id; cRender(); }; box.appendChild(b); }
+  $('#cGo').disabled = false;
+}
+function cRenderRes(){
+  const box = $('#cResList'); box.innerHTML = ''; $('#cRes').hidden = !cResults.length; $('#cAll').hidden = cResults.length < 2;
+  cResults.forEach(f => {
+    const el = document.createElement('div'); el.className = 'item'; if (isImg(f.name)) f._url = URL.createObjectURL(f);
+    el.innerHTML = fileRow(f) + (SL.canShareFiles() ? ib('share', 'Del') : '') + ib('save', 'Gem');
+    el.querySelector('[data-a="save"]').onclick = () => deliver(f, f.name);
+    const sh = el.querySelector('[data-a="share"]'); if (sh) sh.onclick = async () => { if (!await SL.shareFiles([f])) deliver(f, f.name); };
+    box.appendChild(el);
+  });
+}
+$('#cIn').onchange = e => { cFiles.push(...withUrl(picked(e))); cResults = []; cRenderRes(); cRender(); };
+$('#cClear').onclick = () => { cFiles = []; cResults = []; cRender(); cRenderRes(); };
+$('#cGo').onclick = async () => {
+  const k = cKind(), b = $('#cGo'), bar = $('#cProg'), fill = bar.querySelector('b'); b.disabled = true; bar.hidden = false; cResults = []; let bad = [];
+  for (let i = 0; i < cFiles.length; i++) {
+    fill.style.width = (i / cFiles.length * 100) + '%';
+    try { cResults.push(...await CV.convert(cFiles[i], k, cTarget, p => { fill.style.width = ((i + p) / cFiles.length * 100) + '%'; })); }
+    catch (er) { console.error(er); bad.push(`${cFiles[i].name}: ${er.message || er}`); }
+    cRenderRes();
+  }
+  fill.style.width = '100%'; setTimeout(() => { bar.hidden = true; }, 600); b.disabled = false;
+  if (bad.length) SL.toast(bad.join('\n'), 7000); else SL.toast(`${cResults.length} ${cResults.length === 1 ? 'fil' : 'filer'} klar`);
+};
+$('#cAll').onclick = () => deliverMany(cResults, 'Konverteret ' + SL.stamp() + '.zip');
 
 /* ---------- ZIP: pak ud ---------- */
 let zEntries = [];

@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>QR-kode</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/menu.css">
+<style>
+.qrwrap{display:grid;place-items:center;background:var(--panel2);border-radius:14px;padding:16px}
+#qr{width:min(300px,100%);height:auto;image-rendering:pixelated;border-radius:6px}
+#fields{display:grid;gap:10px}
+#fields input,#fields textarea,#fields select{width:100%}
+textarea{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;min-height:90px;resize:vertical;font:inherit;color:inherit}
+.colors{display:flex;gap:16px;flex-wrap:wrap}
+.colors label{display:flex;gap:8px;align-items:center}
+input[type=color]{width:44px;height:36px;border:1px solid var(--line);border-radius:8px;background:none;padding:2px}
+.warn{color:var(--bad);font-size:13px;margin:0}
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="appbtn" data-appmenu aria-label="Skift værktøj"><i></i>QR-kode<span class="chev">▾</span></button>
+  <div class="spacer"></div>
+</header>
+<main>
+  <section class="card">
+    <div class="seg" role="group" aria-label="Type" id="types">
+      <button data-k="url" aria-pressed="true">Link</button>
+      <button data-k="text" aria-pressed="false">Tekst</button>
+      <button data-k="wifi" aria-pressed="false">Wifi</button>
+      <button data-k="contact" aria-pressed="false">Kontakt</button>
+      <button data-k="sms" aria-pressed="false">SMS</button>
+      <button data-k="email" aria-pressed="false">E-mail</button>
+      <button data-k="tel" aria-pressed="false">Telefon</button>
+    </div>
+    <div id="fields"></div>
+  </section>
+
+  <section class="card">
+    <div class="qrwrap"><canvas id="qr" width="300" height="300" aria-label="QR-kode"></canvas></div>
+    <p class="hint" id="info"></p>
+    <p class="warn" id="warn" hidden></p>
+    <div class="row">
+      <button class="btn accent" id="bPng">Gem billede</button>
+      <button class="btn ghost" id="bSvg">Gem SVG</button>
+      <button class="btn ghost" id="bShare" hidden>Del</button>
+      <button class="btn ghost" id="bKeep">Gem i Mine QR-koder</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Udseende</h2>
+    <div class="field"><span class="label">Form</span>
+      <div class="seg" role="group" aria-label="Form" id="style">
+        <button data-v="sq" aria-pressed="true">Firkanter</button><button data-v="round" aria-pressed="false">Afrundet</button><button data-v="dot" aria-pressed="false">Prikker</button>
+      </div>
+    </div>
+    <div class="colors">
+      <label><input type="color" id="fg" value="#111111"> Kode</label>
+      <label><input type="color" id="bg" value="#ffffff"> Baggrund</label>
+    </div>
+    <div class="field"><span class="label">Fejlrettelse</span>
+      <div class="seg" role="group" aria-label="Fejlrettelse" id="ecl">
+        <button data-v="L" aria-pressed="false">Lav</button><button data-v="M" aria-pressed="true">Mellem</button><button data-v="Q" aria-pressed="false">Høj</button><button data-v="H" aria-pressed="false">Højest</button>
+      </div>
+      <p class="hint">Høj fejlrettelse kan læses, selvom koden er lidt slidt eller beskidt, men giver flere prikker.</p>
+    </div>
+    <div class="field"><label class="label" for="caption">Tekst under koden (valgfri)</label><input type="text" id="caption" placeholder="fx Scan for wifi"></div>
+    <div class="field"><span class="label">Billedstørrelse</span>
+      <div class="seg" role="group" aria-label="Billedstørrelse" id="px">
+        <button data-v="512" aria-pressed="false">512 px</button><button data-v="1024" aria-pressed="true">1024 px</button><button data-v="2048" aria-pressed="false">2048 px</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="keptCard" hidden>
+    <h2>Mine QR-koder</h2>
+    <div class="list" id="kept"></div>
+  </section>
+</main>
+<script src="assets/common.js"></script>
+<script src="assets/qr.js"></script>
+<script>
+(() => {
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const FORMS = {
+  url: [['url', 'Link', 'url', 'https://']],
+  text: [['text', 'Tekst', 'area', '']],
+  wifi: [['ssid', 'Netværksnavn', 'text', ''], ['pass', 'Adgangskode', 'text', ''], ['sec', 'Sikkerhed', 'select', 'WPA', [['WPA', 'WPA/WPA2/WPA3'], ['WEP', 'WEP'], ['nopass', 'Ingen adgangskode']]], ['hidden', 'Skjult netværk', 'check', '']],
+  contact: [['name', 'Navn', 'text', ''], ['org', 'Firma', 'text', ''], ['tel', 'Telefon', 'tel', ''], ['email', 'E-mail', 'email', ''], ['url', 'Hjemmeside', 'url', ''], ['adr', 'Adresse', 'text', '']],
+  sms: [['tel', 'Telefonnummer', 'tel', ''], ['msg', 'Besked', 'area', '']],
+  email: [['to', 'Modtager', 'email', ''], ['sub', 'Emne', 'text', ''], ['body', 'Besked', 'area', '']],
+  tel: [['tel', 'Telefonnummer', 'tel', '+45 ']]
+};
+const st = {kind: 'url', vals: {}, style: 'sq', ecl: 'M', px: 1024};
+try { Object.assign(st, JSON.parse(localStorage.getItem('sporlys:qr') || '{}')); } catch (e) {}
+const saveSt = () => { try { localStorage.setItem('sporlys:qr', JSON.stringify(st)); } catch (e) {} };
+const v = k => (st.vals[st.kind + '.' + k] || '').trim();
+const wesc = s => s.replace(/([\\;,:"])/g, '\\$1');
+function payload(){
+  switch (st.kind) {
+    case 'url': { let u = v('url'); if (u && !/^[a-z][a-z0-9+.-]*:/i.test(u)) u = 'https://' + u; return u === 'https://' ? '' : u; }
+    case 'text': return v('text');
+    case 'wifi': return v('ssid') ? `WIFI:T:${v('sec') || 'WPA'};S:${wesc(v('ssid'))};${(v('sec') || 'WPA') === 'nopass' ? '' : 'P:' + wesc(v('pass')) + ';'}${v('hidden') === '1' ? 'H:true;' : ''};` : '';
+    case 'contact': {
+      if (!v('name') && !v('tel') && !v('email')) return '';
+      const L = ['BEGIN:VCARD', 'VERSION:3.0', 'FN:' + v('name'), 'N:' + v('name').split(' ').reverse().join(';')];
+      if (v('org')) L.push('ORG:' + v('org')); if (v('tel')) L.push('TEL:' + v('tel')); if (v('email')) L.push('EMAIL:' + v('email'));
+      if (v('url')) L.push('URL:' + v('url')); if (v('adr')) L.push('ADR:;;' + v('adr') + ';;;;'); L.push('END:VCARD'); return L.join('\n');
+    }
+    case 'sms': return v('tel') ? `SMSTO:${v('tel').replace(/\s/g, '')}:${v('msg')}` : '';
+    case 'email': { if (!v('to')) return ''; const q = []; if (v('sub')) q.push('subject=' + encodeURIComponent(v('sub'))); if (v('body')) q.push('body=' + encodeURIComponent(v('body'))); return 'mailto:' + v('to') + (q.length ? '?' + q.join('&') : ''); }
+    case 'tel': { const t = v('tel').replace(/\s/g, ''); return t.length > 3 ? 'tel:' + t : ''; }
+  }
+  return '';
+}
+function renderFields(){
+  const box = $('#fields'); box.innerHTML = '';
+  for (const [k, label, type, def, opts] of FORMS[st.kind]) {
+    const id = 'f_' + st.kind + '_' + k, key = st.kind + '.' + k;
+    if (st.vals[key] === undefined) st.vals[key] = def;
+    const f = document.createElement('div'); f.className = 'field';
+    if (type === 'check') {
+      f.innerHTML = `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="${id}" ${st.vals[key] === '1' ? 'checked' : ''}> ${label}</label>`;
+      f.querySelector('input').onchange = e => { st.vals[key] = e.target.checked ? '1' : ''; update(); };
+    } else {
+      const ctl = type === 'area' ? `<textarea id="${id}"></textarea>` : type === 'select' ? `<select id="${id}">${opts.map(([a, b]) => `<option value="${a}">${b}</option>`).join('')}</select>` : `<input id="${id}" type="${type}" autocomplete="off" ${type === 'tel' ? 'inputmode="tel"' : ''}>`;
+      f.innerHTML = `<label class="label" for="${id}">${label}</label>${ctl}`;
+      const el = f.querySelector('input,textarea,select'); el.value = st.vals[key];
+      el.oninput = el.onchange = e => { st.vals[key] = e.target.value; update(); };
+    }
+    box.appendChild(f);
+  }
+}
+/* Tegn koden */
+function lumOf(h){ const n = parseInt(h.slice(1), 16); return .3*(n >> 16) + .59*((n >> 8) & 255) + .11*(n & 255); }
+function drawTo(ctx, q, S, withCaption){
+  const fg = $('#fg').value, bg = $('#bg').value, cap = withCaption ? $('#caption').value.trim() : '';
+  const quiet = 4, n = q.size + quiet*2, m = S / n, capH = cap ? Math.round(S * .1) : 0;
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, S, S + capH); ctx.fillStyle = fg;
+  const finder = (x, y) => (x < 7 && y < 7) || (x >= q.size - 7 && y < 7) || (x < 7 && y >= q.size - 7);
+  for (let y = 0; y < q.size; y++) for (let x = 0; x < q.size; x++) {
+    if (!q.get(x, y)) continue; const X = (x + quiet) * m, Y = (y + quiet) * m;
+    if (st.style === 'sq' || finder(x, y)) ctx.fillRect(Math.floor(X), Math.floor(Y), Math.ceil(m + (X % 1)), Math.ceil(m + (Y % 1)));
+    else if (st.style === 'dot') { ctx.beginPath(); ctx.arc(X + m/2, Y + m/2, m * .45, 0, 7); ctx.fill(); }
+    else { // afrundede felter, der smelter sammen med naboerne
+      const r = m * .38, R = q.get(x+1, y), D = q.get(x, y+1), Lf = q.get(x-1, y), U = q.get(x, y-1);
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(X - .4, Y - .4, m + .8, m + .8, [U || Lf ? 0 : r, U || R ? 0 : r, D || R ? 0 : r, D || Lf ? 0 : r]); else ctx.rect(X, Y, m, m);
+      ctx.fill();
+    }
+  }
+  if (st.style !== 'sq') { // runde søgemønstre i hjørnerne
+    for (const [fx, fy] of [[0, 0], [q.size - 7, 0], [0, q.size - 7]]) {
+      const X = (fx + quiet) * m, Y = (fy + quiet) * m; ctx.fillStyle = bg; ctx.fillRect(X - 1, Y - 1, 7*m + 2, 7*m + 2); ctx.fillStyle = fg;
+      const rr = (x, y, w, h, r) => { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); ctx.fill(); };
+      rr(X, Y, 7*m, 7*m, 1.5*m); ctx.fillStyle = bg; rr(X + m, Y + m, 5*m, 5*m, m); ctx.fillStyle = fg; rr(X + 2*m, Y + 2*m, 3*m, 3*m, .8*m);
+    }
+  }
+  if (cap) { ctx.fillStyle = fg; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `700 ${Math.round(capH * .5)}px system-ui, sans-serif`; ctx.fillText(cap, S / 2, S - quiet*m/2 + capH / 2, S - 2*quiet*m); }
+}
+let lastQ = null;
+function update(){
+  saveSt();
+  const text = payload(), c = $('#qr'), ctx = c.getContext('2d'), warn = $('#warn');
+  warn.hidden = true;
+  if (!text) { lastQ = null; c.width = c.height = 300; ctx.fillStyle = '#23262e'; ctx.fillRect(0, 0, 300, 300); ctx.fillStyle = '#9b9da6'; ctx.font = '15px system-ui'; ctx.textAlign = 'center'; ctx.fillText('Udfyld felterne ovenfor', 150, 150); $('#info').textContent = ''; setBtns(false); return; }
+  try { lastQ = QR.make(text, st.ecl); } catch (e) { lastQ = null; warn.textContent = 'Der er for meget tekst til én QR-kode. Gør teksten kortere.'; warn.hidden = false; setBtns(false); return; }
+  const cap = $('#caption').value.trim(), S = 600; c.width = S; c.height = S + (cap ? Math.round(S * .1) : 0); drawTo(ctx, lastQ, S, true);
+  $('#info').textContent = `${lastQ.size} × ${lastQ.size} felter · ${new TextEncoder().encode(text).length} tegn`;
+  if (lumOf($('#fg').value) > lumOf($('#bg').value) - 90) { warn.textContent = 'Koden skal være meget mørkere end baggrunden, ellers kan mange telefoner ikke læse den.'; warn.hidden = false; }
+  setBtns(true);
+}
+function setBtns(on){ for (const id of ['bPng', 'bSvg', 'bShare', 'bKeep']) $('#' + id).disabled = !on; }
+const fname = () => 'QR ' + ({url: 'link', text: 'tekst', wifi: 'wifi', contact: 'kontakt', sms: 'sms', email: 'e-mail', tel: 'telefon'}[st.kind]) + ' ' + SL.stamp();
+async function pngBlob(){
+  const cap = $('#caption').value.trim(), c = document.createElement('canvas'); c.width = st.px; c.height = st.px + (cap ? Math.round(st.px * .1) : 0);
+  drawTo(c.getContext('2d'), lastQ, st.px, true); return SL.canvasBlob(c, 'image/png');
+}
+function svgText(){
+  const q = lastQ, quiet = 4, n = q.size + quiet*2, fg = $('#fg').value, bg = $('#bg').value; let d = '';
+  for (let y = 0; y < q.size; y++) for (let x = 0; x < q.size; x++) if (q.get(x, y)) d += `M${x + quiet} ${y + quiet}h1v1h-1z`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges"><rect width="${n}" height="${n}" fill="${bg}"/><path d="${d}" fill="${fg}"/></svg>`;
+}
+$('#bPng').onclick = async () => { SL.saveFile(await pngBlob(), fname() + '.png'); SL.toast('Billede gemt'); };
+$('#bSvg').onclick = () => { SL.saveFile(new Blob([svgText()], {type: 'image/svg+xml'}), fname() + '.svg'); SL.toast('SVG gemt'); };
+if (SL.canShareFiles()) $('#bShare').hidden = false;
+$('#bShare').onclick = async () => { const b = await pngBlob(); if (!await SL.shareFiles([new File([b], fname() + '.png', {type: 'image/png'})])) SL.saveFile(b, fname() + '.png'); };
+
+/* Mine QR-koder */
+let kept = []; try { kept = JSON.parse(localStorage.getItem('sporlys:qr:kept') || '[]'); } catch (e) {}
+const saveKept = () => { try { localStorage.setItem('sporlys:qr:kept', JSON.stringify(kept)); } catch (e) {} };
+function title(){ const k = st.kind; return k === 'wifi' ? 'Wifi: ' + v('ssid') : k === 'contact' ? v('name') || v('tel') : k === 'url' ? v('url').replace(/^https?:\/\//, '') : k === 'text' ? v('text').slice(0, 40) : k === 'email' ? v('to') : v('tel'); }
+function renderKept(){
+  $('#keptCard').hidden = !kept.length; const box = $('#kept'); box.innerHTML = '';
+  kept.forEach((k, i) => {
+    const el = document.createElement('div'); el.className = 'item';
+    el.innerHTML = `<span class="name"><b>${SL.esc(k.title || 'QR-kode')}</b></span><button class="btn ghost" data-a="open">Åbn</button><button class="ib" data-a="x" aria-label="Slet"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+    el.querySelector('[data-a="open"]').onclick = () => { st.kind = k.kind; Object.assign(st.vals, k.vals); syncTypes(); renderFields(); update(); window.scrollTo({top: 0, behavior: 'smooth'}); };
+    el.querySelector('[data-a="x"]').onclick = () => { kept.splice(i, 1); saveKept(); renderKept(); };
+    box.appendChild(el);
+  });
+}
+$('#bKeep').onclick = () => {
+  const vals = {}; for (const [k] of FORMS[st.kind]) vals[st.kind + '.' + k] = st.vals[st.kind + '.' + k];
+  kept.unshift({kind: st.kind, vals, title: title()}); kept = kept.slice(0, 30); saveKept(); renderKept(); SL.toast('Gemt under Mine QR-koder');
+};
+
+/* Kontroller */
+function syncTypes(){ $$('#types button').forEach(b => b.setAttribute('aria-pressed', b.dataset.k === st.kind)); }
+$$('#types button').forEach(b => b.onclick = () => { st.kind = b.dataset.k; syncTypes(); renderFields(); update(); });
+function seg(id, key, num){ $$(`#${id} button`).forEach(b => { b.setAttribute('aria-pressed', String(st[key]) === b.dataset.v); b.onclick = () => { st[key] = num ? +b.dataset.v : b.dataset.v; $$(`#${id} button`).forEach(x => x.setAttribute('aria-pressed', x === b)); update(); }; }); }
+seg('style', 'style'); seg('ecl', 'ecl'); seg('px', 'px', true);
+for (const id of ['fg', 'bg', 'caption']) $('#' + id).oninput = update;
+syncTypes(); renderFields(); renderKept(); update();
+})();
+</script>
+</body>
+</html>

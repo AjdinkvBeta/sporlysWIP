@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>PDF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/menu.css">
+<style>
+body{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 190px)}
+.tools{grid-template-columns:minmax(0,1fr);position:sticky;top:calc(env(safe-area-inset-top,0px) + 57px);z-index:15;background:var(--ink);padding-block:8px;display:grid;gap:8px;margin:0 calc(-1*max(16px,env(safe-area-inset-left,0px)));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line)}
+.tools .seg{max-width:760px}
+.tb{display:grid;grid-template-columns:repeat(auto-fill,minmax(66px,1fr));gap:4px;max-width:760px;margin:0 auto;width:100%}
+.tb::-webkit-scrollbar{display:none}
+.tb button{display:grid;justify-items:center;gap:2px;border:0;background:none;color:var(--muted);padding:6px 8px;border-radius:10px;cursor:pointer;font-size:12px;font-weight:700;min-width:0}
+.tb button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tb button[aria-pressed="true"]{background:var(--fg);color:var(--ink)}
+.pages{display:grid;gap:18px;max-width:760px;margin:0 auto;width:100%}
+.pg{display:grid;gap:6px}
+.pgbar{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px}
+.pgbar .ib{width:32px;height:32px}
+.pgv{position:relative;background:#fff;box-shadow:0 4px 18px #0006;border-radius:4px;overflow:hidden;line-height:0}
+.pgv canvas{width:100%;height:auto;display:block}
+.pgv svg{position:absolute;inset:0;width:100%;height:100%;touch-action:pan-y}
+.drawing .pgv svg{touch-action:none}
+.sel{fill:none;stroke:#2f6fd8;stroke-dasharray:4 3}
+.handle{fill:#2f6fd8;stroke:#fff}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -10px 30px #0008;
+  padding:12px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 12px) max(16px,env(safe-area-inset-left,0px));display:grid;gap:10px}
+.sheet>*{max-width:760px;width:100%;margin:0 auto}
+.sheet textarea{width:100%;min-height:64px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;color:inherit;resize:vertical}
+.sw{display:flex;gap:8px;flex-wrap:wrap}
+.sw button{width:30px;height:30px;border-radius:50%;border:2px solid var(--line);cursor:pointer}
+.sw button[aria-pressed="true"]{border-color:var(--fg);box-shadow:0 0 0 2px var(--accent)}
+#sigModal{position:fixed;inset:0;z-index:120;background:#000c;display:grid;place-items:center;padding:16px}
+#sigModal .card{width:min(560px,100%)}
+#sigPad{width:100%;height:200px;background:#fff;border-radius:10px;touch-action:none;display:block}
+.empty{display:grid;gap:14px;max-width:760px;margin:24px auto 0;width:100%}
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="appbtn" data-appmenu aria-label="Skift værktøj"><i></i>PDF<span class="chev">▾</span></button>
+  <div class="spacer"></div>
+  <label class="btn ghost" for="fOpen">Åbn</label>
+  <button class="btn accent" id="bSave" disabled>Gem</button>
+</header>
+<input type="file" id="fOpen" accept="application/pdf,.pdf" hidden>
+<input type="file" id="fImg" accept="image/*" hidden>
+
+<div class="tools" id="tools" hidden>
+  <div class="tb" role="group" aria-label="Værktøjer" id="tb">
+    <button data-t="sel" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-3 6z"/></svg>Vælg</button>
+    <button data-t="text" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 5h14M12 5v14M9 19h6"/></svg>Tekst</button>
+    <button data-t="ink" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg>Tegn</button>
+    <button data-t="hl" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 18h16"/><path d="M7 14l7-9 4 3-7 9H7z"/></svg>Marker</button>
+    <button data-t="cover" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="10" rx="1"/><path d="M8 12h8"/></svg>Dæk over</button>
+    <button data-t="sig" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M3 17c3 0 4-8 6-8s0 8 3 8 3-4 5-4 2 3 4 3"/><path d="M3 21h18"/></svg>Underskrift</button>
+    <button data-t="img" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>Billede</button>
+    <button data-t="undo" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Fortryd</button>
+  </div>
+  <p class="hint" id="toolHint" style="max-width:760px;margin:0 auto;width:100%"></p>
+</div>
+
+<main style="padding-top:12px">
+  <section class="empty" id="empty">
+    <label class="drop" for="fOpen"><b>Åbn en PDF</b><span class="hint">Skriv tekst, tegn, marker, dæk over, sæt underskrift og billeder ind, og drej, flyt eller slet sider.</span></label>
+    <button class="btn ghost" id="bBlank" style="justify-self:start">Start med en tom A4-side</button>
+  </section>
+  <div class="pages" id="pages"></div>
+</main>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="row" style="justify-content:space-between"><b id="sheetTitle">Tekst</b><button class="btn ghost" id="sheetDone">Færdig</button></div>
+  <textarea id="txtEdit" placeholder="Skriv din tekst"></textarea>
+  <div class="field" id="sizeField"><div class="t"><span id="sizeLabel">Størrelse</span><output id="oSize"></output></div><input type="range" id="rSize" min="6" max="48" value="14"></div>
+  <div class="sw" id="colors"></div>
+  <div class="row"><button class="btn ghost" id="bDel">Slet</button></div>
+</div>
+
+<div id="sigModal" hidden>
+  <div class="card">
+    <h2>Din underskrift</h2>
+    <canvas id="sigPad"></canvas>
+    <div class="row"><button class="btn ghost" id="sigClear">Ryd</button><div class="spacer"></div><button class="btn ghost" id="sigCancel">Annullér</button><button class="btn accent" id="sigUse">Brug</button></div>
+    <p class="hint">Underskriften huskes på denne telefon, så du kan bruge den igen.</p>
+  </div>
+</div>
+
+<script src="assets/common.js"></script>
+<script src="assets/vendor/pdf-lib.min.js"></script>
+<script type="module">
+import * as pdfjsLib from './assets/vendor/pdfjs/pdf.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = './assets/vendor/pdfjs/pdf.worker.min.mjs';
+const V = 'assets/vendor/pdfjs/';
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const NS = 'http://www.w3.org/2000/svg';
+const DB = SL.store('sporlys-pdf');
+const COLORS = ['#111111', '#1f45ff', '#d42a2a', '#0b8a4a', '#ffd400', '#ff8a00', '#ffffff'];
+const HINT = {sel: 'Tryk på noget for at flytte, ændre eller slette det. Træk i den blå prik for at ændre størrelse.', text: 'Tryk der, hvor teksten skal stå.', ink: 'Tegn med fingeren. Skift til Vælg for at rulle.',
+  hl: 'Træk hen over det, der skal markeres.', cover: 'Træk en boks over det, der skal skjules. Skriv evt. ny tekst ovenpå bagefter.', sig: 'Tryk der, hvor underskriften skal sidde.', img: 'Tryk der, hvor billedet skal sidde.'};
+
+/* ---------- Tilstand ---------- */
+let D = null; // {name, bytes: Uint8Array, pdf, pages: [{src, extra, objs: []}]}
+let tool = 'sel', sel = null, undoStack = [], pendingImg = null, color = '#111111';
+const uid = () => Math.random().toString(36).slice(2, 9);
+function snapshot(){ undoStack.push(JSON.stringify(D.pages.map(p => ({src: p.src, extra: p.extra, objs: p.objs})))); if (undoStack.length > 50) undoStack.shift(); }
+let saveT = 0;
+function persist(){ clearTimeout(saveT); saveT = setTimeout(() => { if (D) DB.set('doc', {name: D.name, bytes: new Blob([D.bytes]), pages: D.pages.map(p => ({src: p.src, extra: p.extra, objs: p.objs}))}); }, 500); }
+
+async function openBytes(bytes, name, pages){
+  let pdf;
+  try { pdf = await pdfjsLib.getDocument({data: bytes.slice(), cMapUrl: V + 'cmaps/', cMapPacked: true, standardFontDataUrl: V + 'standard_fonts/', wasmUrl: V + 'wasm/'}).promise; }
+  catch (e) { SL.toast(/password/i.test(e && e.name || '') ? 'PDF\'en er beskyttet med adgangskode og kan ikke åbnes her.' : 'Filen kunne ikke åbnes som PDF.'); return; }
+  D = {name, bytes, pdf, pages: pages || Array.from({length: pdf.numPages}, (_, i) => ({src: i, extra: 0, objs: []}))};
+  undoStack = []; sel = null;
+  $('#empty').hidden = true; $('#tools').hidden = false; $('#bSave').disabled = false;
+  await renderAll(); persist();
+}
+$('#fOpen').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; openBytes(new Uint8Array(await f.arrayBuffer()), f.name.replace(/\.pdf$/i, '')); };
+$('#bBlank').onclick = async () => { const d = await PDFLib.PDFDocument.create(); d.addPage([595.28, 841.89]); openBytes(await d.save(), 'Nyt dokument ' + SL.stamp()); };
+
+/* ---------- Visning ---------- */
+const views = new Map(); // page obj -> {wrap, svg, g, baseVp}
+async function renderAll(){
+  const box = $('#pages'); box.innerHTML = ''; views.clear();
+  for (let i = 0; i < D.pages.length; i++) box.appendChild(await renderPage(D.pages[i], i));
+}
+async function renderPage(P, i){
+  const page = await D.pdf.getPage(P.src + 1), base = page.getViewport({scale: 1}), rot = (base.rotation + P.extra) % 360, disp = page.getViewport({scale: 1, rotation: rot});
+  const el = document.createElement('div'); el.className = 'pg';
+  el.innerHTML = `<div class="pgbar"><span>Side ${i + 1} af ${D.pages.length}</span><div class="spacer"></div>
+    <button class="ib" data-a="rot" aria-label="Drej siden" title="Drej"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 4v5h-5"/></svg></button>
+    <button class="ib" data-a="up" aria-label="Flyt op" ${i ? '' : 'disabled'}><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+    <button class="ib" data-a="down" aria-label="Flyt ned" ${i < D.pages.length - 1 ? '' : 'disabled'}><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+    <button class="ib" data-a="del" aria-label="Slet side"><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></svg></button></div>
+    <div class="pgv"><canvas></canvas></div>`;
+  const pgv = el.querySelector('.pgv'), cv = el.querySelector('canvas');
+  pgv.style.aspectRatio = `${disp.width} / ${disp.height}`;
+  // Tegn siden i en opløsning, der passer til skærmen
+  const cssW = Math.min(760, document.documentElement.clientWidth - 32), dpr = Math.min(2, window.devicePixelRatio || 1), sc = cssW * dpr / disp.width;
+  const vp = page.getViewport({scale: sc, rotation: rot}); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+  page.render({canvasContext: cv.getContext('2d'), viewport: vp}).promise.catch(() => {});
+  const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('viewBox', `0 0 ${disp.width} ${disp.height}`);
+  const g = document.createElementNS(NS, 'g'), W = base.width, H = base.height, ex = P.extra % 360;
+  g.setAttribute('transform', ex === 90 ? `matrix(0,1,-1,0,${H},0)` : ex === 180 ? `matrix(-1,0,0,-1,${W},${H})` : ex === 270 ? `matrix(0,-1,1,0,0,${W})` : '');
+  svg.appendChild(g); pgv.appendChild(svg);
+  views.set(P, {el, svg, g, base, W, H});
+  drawObjs(P);
+  hookPointer(P, svg, g);
+  const act = a => el.querySelector(`[data-a="${a}"]`);
+  act('rot').onclick = () => { snapshot(); P.extra = (P.extra + 90) % 360; rerender(P); };
+  act('up').onclick = () => { snapshot(); const k = D.pages.indexOf(P); [D.pages[k-1], D.pages[k]] = [D.pages[k], D.pages[k-1]]; renderAll(); persist(); };
+  act('down').onclick = () => { snapshot(); const k = D.pages.indexOf(P); [D.pages[k+1], D.pages[k]] = [D.pages[k], D.pages[k+1]]; renderAll(); persist(); };
+  act('del').onclick = e => {
+    const b = e.currentTarget; if (D.pages.length === 1) { SL.toast('Den sidste side kan ikke slettes.'); return; }
+    if (!b.dataset.armed) { b.dataset.armed = 1; b.style.background = 'var(--bad)'; setTimeout(() => { delete b.dataset.armed; b.style.background = ''; }, 2500); SL.toast('Tryk igen for at slette siden'); return; }
+    snapshot(); D.pages.splice(D.pages.indexOf(P), 1); renderAll(); persist();
+  };
+  return el;
+}
+async function rerender(P){ const v = views.get(P), i = D.pages.indexOf(P), n = await renderPage(P, i); v.el.replaceWith(n); persist(); }
+
+function drawObjs(P){
+  const {g} = views.get(P); g.innerHTML = '';
+  for (const o of P.objs) {
+    let n;
+    if (o.type === 'rect') { n = document.createElementNS(NS, 'rect'); Object.entries({x: o.x, y: o.y, width: o.w, height: o.h, fill: o.color, 'fill-opacity': o.alpha}).forEach(([k, v]) => n.setAttribute(k, v)); if (o.alpha < 1) n.style.mixBlendMode = 'multiply'; }
+    else if (o.type === 'ink') { n = document.createElementNS(NS, 'polyline'); n.setAttribute('points', o.pts.map(p => p.join(',')).join(' ')); Object.entries({fill: 'none', stroke: o.color, 'stroke-width': o.lw, 'stroke-linecap': 'round', 'stroke-linejoin': 'round'}).forEach(([k, v]) => n.setAttribute(k, v)); }
+    else if (o.type === 'text') { n = document.createElementNS(NS, 'text'); n.setAttribute('font-family', 'Helvetica, Arial, sans-serif'); n.setAttribute('font-size', o.size); n.setAttribute('fill', o.color);
+      (o.text || ' ').split('\n').forEach((line, k) => { const t = document.createElementNS(NS, 'tspan'); t.setAttribute('x', o.x); t.setAttribute('y', o.y + o.size * (.8 + k * 1.2)); t.textContent = line || ' '; n.appendChild(t); }); }
+    else if (o.type === 'img') { n = document.createElementNS(NS, 'image'); Object.entries({x: o.x, y: o.y, width: o.w, height: o.h, href: o.src, preserveAspectRatio: 'none'}).forEach(([k, v]) => n.setAttribute(k, v)); }
+    n.dataset.id = o.id; g.appendChild(n);
+  }
+  if (sel && sel.P === P) {
+    const o = P.objs.find(x => x.id === sel.id); if (!o) return;
+    const b = bbox(o, g), r = document.createElementNS(NS, 'rect');
+    Object.entries({x: b.x - 3, y: b.y - 3, width: b.w + 6, height: b.h + 6, class: 'sel'}).forEach(([k, v]) => r.setAttribute(k, v)); g.appendChild(r);
+    if (o.type !== 'ink') { const h = document.createElementNS(NS, 'circle'); Object.entries({cx: b.x + b.w + 3, cy: b.y + b.h + 3, r: 7, class: 'handle'}).forEach(([k, v]) => h.setAttribute(k, v)); h.dataset.handle = 1; g.appendChild(h); }
+  }
+}
+function bbox(o, g){
+  if (o.type === 'ink') { const xs = o.pts.map(p => p[0]), ys = o.pts.map(p => p[1]); return {x: Math.min(...xs) - o.lw/2, y: Math.min(...ys) - o.lw/2, w: Math.max(...xs) - Math.min(...xs) + o.lw, h: Math.max(...ys) - Math.min(...ys) + o.lw}; }
+  if (o.type === 'text') { const n = g.querySelector(`[data-id="${o.id}"]`); try { const b = n.getBBox(); return {x: o.x, y: o.y, w: Math.max(10, b.width), h: Math.max(o.size, b.height)}; } catch (e) { return {x: o.x, y: o.y, w: 50, h: o.size}; } }
+  return {x: o.x, y: o.y, w: o.w, h: o.h};
+}
+// Skærmpunkt -> sidens koordinater (før drejning)
+function pt(e, g){ const m = g.getScreenCTM().inverse(), p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m); return [p.x, p.y]; }
+
+function hookPointer(P, svg, g){
+  let act = null;
+  svg.addEventListener('pointerdown', e => {
+    const [x, y] = pt(e, g), v = views.get(P);
+    if (tool === 'sel') {
+      if (e.target.dataset.handle && sel && sel.P === P) { const o = P.objs.find(q => q.id === sel.id); snapshot(); act = {mode: 'resize', o, sx: x, sy: y, w0: o.w, h0: o.h, s0: o.size}; }
+      else {
+        const id = e.target.dataset && e.target.dataset.id || (e.target.parentNode && e.target.parentNode.dataset && e.target.parentNode.dataset.id);
+        const o = id && P.objs.find(q => q.id === id);
+        if (!o) { if (sel) { select(null); } return; }
+        select(P, o); snapshot(); act = {mode: 'move', o, sx: x, sy: y, ox: o.x, oy: o.y, pts: o.pts && o.pts.map(p => p.slice())};
+      }
+      svg.setPointerCapture(e.pointerId); e.preventDefault(); return;
+    }
+    e.preventDefault(); svg.setPointerCapture(e.pointerId);
+    if (tool === 'text') { snapshot(); const o = {id: uid(), type: 'text', x, y: y - 8, size: 14, color: color === '#ffffff' ? '#111111' : color, text: ''}; P.objs.push(o); select(P, o); setTool('sel', true); setTimeout(() => $('#txtEdit').focus(), 50); return; }
+    if (tool === 'sig' || tool === 'img') {
+      if (!pendingImg) return; snapshot();
+      const w = v.W * (tool === 'sig' ? .32 : .45), h = w * pendingImg.h / pendingImg.w;
+      const o = {id: uid(), type: 'img', x: x - w/2, y: y - h/2, w, h, src: pendingImg.src}; P.objs.push(o); select(P, o); setTool('sel'); return;
+    }
+    snapshot();
+    if (tool === 'ink') { const o = {id: uid(), type: 'ink', pts: [[x, y]], lw: inkW, color}; P.objs.push(o); act = {mode: 'ink', o}; }
+    else { const hl = tool === 'hl', o = {id: uid(), type: 'rect', x, y, w: 0, h: 0, color: hl ? (color === '#111111' || color === '#ffffff' ? '#ffd400' : color) : '#ffffff', alpha: hl ? .38 : 1}; P.objs.push(o); act = {mode: 'rect', o, sx: x, sy: y}; }
+    drawObjs(P);
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!act) return; const [x, y] = pt(e, g), o = act.o;
+    if (act.mode === 'ink') { const l = o.pts[o.pts.length - 1]; if (Math.hypot(x - l[0], y - l[1]) > .8) o.pts.push([+x.toFixed(2), +y.toFixed(2)]); }
+    else if (act.mode === 'rect') { o.x = Math.min(x, act.sx); o.y = Math.min(y, act.sy); o.w = Math.abs(x - act.sx); o.h = Math.abs(y - act.sy); }
+    else if (act.mode === 'move') { const dx = x - act.sx, dy = y - act.sy; if (o.pts) o.pts = act.pts.map(p => [p[0] + dx, p[1] + dy]); else { o.x = act.ox + dx; o.y = act.oy + dy; } }
+    else if (act.mode === 'resize') {
+      if (o.type === 'text') o.size = Math.max(5, Math.min(120, act.s0 + (y - act.sy) * .6));
+      else if (o.type === 'img') { const k = Math.max(.1, (act.w0 + x - act.sx) / act.w0); o.w = act.w0 * k; o.h = act.h0 * k; }
+      else { o.w = Math.max(4, act.w0 + x - act.sx); o.h = Math.max(4, act.h0 + y - act.sy); }
+      if (o.type === 'text') syncSheet();
+    }
+    drawObjs(P);
+  });
+  const end = () => {
+    if (!act) return; const o = act.o;
+    if (act.mode === 'rect' && (o.w < 3 || o.h < 3)) { P.objs.splice(P.objs.indexOf(o), 1); undoStack.pop(); }
+    if (act.mode === 'ink' && o.pts.length < 2) o.pts.push([o.pts[0][0] + .5, o.pts[0][1] + .5]);
+    act = null; drawObjs(P); persist();
+  };
+  svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
+}
+
+/* ---------- Valgt objekt: redigering ---------- */
+let inkW = 2.5;
+function select(P, o){
+  const prev = sel && sel.P; sel = o ? {P, id: o.id} : null;
+  if (prev && prev !== P && views.get(prev)) drawObjs(prev);
+  if (P) drawObjs(P);
+  syncSheet();
+}
+function curObj(){ return sel && sel.P.objs.find(o => o.id === sel.id); }
+function syncSheet(){
+  const o = curObj(), sh = $('#sheet');
+  if (!o && tool !== 'ink' && tool !== 'hl') { sh.hidden = true; return; }
+  sh.hidden = false;
+  const t = o ? o.type : tool;
+  $('#sheetTitle').textContent = !o ? (tool === 'ink' ? 'Pen' : 'Marker') : t === 'text' ? 'Tekst' : t === 'ink' ? 'Tegning' : t === 'img' ? 'Billede' : o.alpha < 1 ? 'Markering' : 'Dækboks';
+  $('#txtEdit').hidden = t !== 'text'; if (t === 'text' && document.activeElement !== $('#txtEdit')) $('#txtEdit').value = o.text;
+  $('#sizeField').hidden = !(t === 'text' || t === 'ink');
+  $('#sizeLabel').textContent = t === 'text' ? 'Skriftstørrelse' : 'Stregtykkelse';
+  const r = $('#rSize');
+  if (t === 'text') { r.min = 6; r.max = 60; r.step = 1; r.value = o.size; $('#oSize').textContent = Math.round(o.size) + ' pt'; }
+  else if (t === 'ink') { r.min = .5; r.max = 12; r.step = .5; r.value = o ? o.lw : inkW; $('#oSize').textContent = (o ? o.lw : inkW) + ' pt'; }
+  $('#colors').hidden = t === 'img';
+  const cur = o ? o.color : color;
+  $('#colors').innerHTML = COLORS.map(c => `<button style="background:${c}" data-c="${c}" aria-label="Farve ${c}" aria-pressed="${c === cur}"></button>`).join('');
+  $$('#colors button').forEach(b => b.onclick = () => { const ob = curObj(); if (ob) { snapshot(); ob.color = b.dataset.c; drawObjs(sel.P); persist(); } color = b.dataset.c; syncSheet(); });
+  $('#bDel').hidden = !o;
+}
+$('#txtEdit').oninput = e => { const o = curObj(); if (o && o.type === 'text') { o.text = e.target.value; drawObjs(sel.P); persist(); } };
+$('#rSize').oninput = e => { const o = curObj(), v = +e.target.value; if (o && o.type === 'text') o.size = v; else if (o && o.type === 'ink') o.lw = v; else inkW = v; if (o) { drawObjs(sel.P); persist(); } syncSheet(); };
+$('#bDel').onclick = () => { const o = curObj(); if (!o) return; snapshot(); sel.P.objs.splice(sel.P.objs.indexOf(o), 1); const P = sel.P; sel = null; drawObjs(P); syncSheet(); persist(); };
+$('#sheetDone').onclick = () => {
+  const o = curObj(); if (o && o.type === 'text' && !o.text.trim()) { sel.P.objs.splice(sel.P.objs.indexOf(o), 1); }
+  const P = sel && sel.P; sel = null; if (P) drawObjs(P); $('#sheet').hidden = true; if (tool === 'ink' || tool === 'hl') setTool('sel');
+};
+
+/* ---------- Værktøjer ---------- */
+function setTool(t, keepSel){
+  if (t === 'undo') { const s = undoStack.pop(); if (!s) { SL.toast('Intet at fortryde'); return; } const arr = JSON.parse(s); const order = D.pages.map(p => p.src);
+    const sameOrder = arr.length === D.pages.length && arr.every((p, i) => p.src === order[i] && p.extra === D.pages[i].extra);
+    D.pages = arr; sel = null; $('#sheet').hidden = true; if (sameOrder) { renderAll(); } else renderAll(); persist(); return; }
+  tool = t; $$('#tb button').forEach(b => b.setAttribute('aria-pressed', b.dataset.t === t));
+  document.body.classList.toggle('drawing', t !== 'sel');
+  $('#toolHint').textContent = HINT[t] || '';
+  if (!keepSel && sel) select(null);
+  if (t === 'sig') openSig();
+  if (t === 'img') $('#fImg').click();
+  syncSheet();
+}
+$$('#tb button').forEach(b => b.onclick = () => setTool(b.dataset.t));
+$('#fImg').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) { setTool('sel'); return; }
+  const im = await SL.loadImage(f), k = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas');
+  c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+  pendingImg = {src: c.toDataURL(f.type === 'image/png' ? 'image/png' : 'image/jpeg', .9), w: c.width, h: c.height}; SL.toast('Tryk på siden, hvor billedet skal sidde.');
+};
+
+/* Underskrift */
+const pad = $('#sigPad'); let padStroke = null, padDirty = false;
+function openSig(){
+  $('#sigModal').hidden = false; const dpr = window.devicePixelRatio || 1, r = pad.getBoundingClientRect();
+  pad.width = r.width * dpr; pad.height = r.height * dpr; const x = pad.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, r.width, r.height); padDirty = false;
+  let saved = null; try { saved = localStorage.getItem('sporlys:sig'); } catch (e) {}
+  if (saved) { const im = new Image(); im.onload = () => { const k = Math.min(r.width / im.width, r.height / im.height) * .9; x.drawImage(im, (r.width - im.width*k) / 2, (r.height - im.height*k) / 2, im.width*k, im.height*k); padDirty = true; }; im.src = saved; }
+}
+pad.addEventListener('pointerdown', e => { const r = pad.getBoundingClientRect(); padStroke = [e.clientX - r.left, e.clientY - r.top]; pad.setPointerCapture(e.pointerId); padDirty = true; });
+pad.addEventListener('pointermove', e => { if (!padStroke) return; const r = pad.getBoundingClientRect(), p = [e.clientX - r.left, e.clientY - r.top], x = pad.getContext('2d'); x.strokeStyle = '#111'; x.lineWidth = 2.6; x.lineCap = x.lineJoin = 'round'; x.beginPath(); x.moveTo(...padStroke); x.lineTo(...p); x.stroke(); padStroke = p; });
+pad.addEventListener('pointerup', () => { padStroke = null; });
+$('#sigClear').onclick = () => { pad.getContext('2d').clearRect(0, 0, pad.width, pad.height); padDirty = false; try { localStorage.removeItem('sporlys:sig'); } catch (e) {} };
+$('#sigCancel').onclick = () => { $('#sigModal').hidden = true; setTool('sel'); };
+$('#sigUse').onclick = () => {
+  if (!padDirty) { SL.toast('Skriv din underskrift først.'); return; }
+  // Beskær til selve underskriften
+  const x = pad.getContext('2d'), d = x.getImageData(0, 0, pad.width, pad.height).data; let x0 = pad.width, y0 = pad.height, x1 = 0, y1 = 0;
+  for (let y = 0; y < pad.height; y++) for (let i = 0; i < pad.width; i++) if (d[(y*pad.width + i)*4 + 3] > 20) { if (i < x0) x0 = i; if (i > x1) x1 = i; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 <= x0) { SL.toast('Skriv din underskrift først.'); return; }
+  const c = document.createElement('canvas'); c.width = x1 - x0 + 8; c.height = y1 - y0 + 8; c.getContext('2d').drawImage(pad, x0 - 4, y0 - 4, c.width, c.height, 0, 0, c.width, c.height);
+  const src = c.toDataURL('image/png'); try { localStorage.setItem('sporlys:sig', src); } catch (e) {}
+  pendingImg = {src, w: c.width, h: c.height}; $('#sigModal').hidden = true; SL.toast('Tryk på siden, hvor underskriften skal sidde.');
+};
+
+/* ---------- Gem som PDF ---------- */
+const hexRgb = h => { const n = parseInt(h.slice(1), 16); return PDFLib.rgb((n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
+function dataBytes(u){ const b = atob(u.split(',')[1]), a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+function textImage(o){ // til tegn, som standardskriften ikke kan (fx kinesisk eller kyrillisk)
+  const lines = o.text.split('\n'), s = 4, c = document.createElement('canvas'), x = c.getContext('2d'); x.font = `${o.size * s}px Helvetica, Arial, sans-serif`;
+  c.width = Math.ceil(Math.max(...lines.map(l => x.measureText(l).width)) + 4); c.height = Math.ceil(o.size * s * (1.2 * lines.length));
+  x.font = `${o.size * s}px Helvetica, Arial, sans-serif`; x.fillStyle = o.color; x.textBaseline = 'alphabetic';
+  lines.forEach((l, k) => x.fillText(l, 0, o.size * s * (.8 + k * 1.2)));
+  return {src: c.toDataURL('image/png'), w: c.width / s, h: c.height / s};
+}
+async function buildPdf(){
+  const {PDFDocument, StandardFonts, pushGraphicsState: q, popGraphicsState: Q, concatTransformationMatrix: cm, setLineWidth, setStrokingColor, setLineCap, setLineJoin, LineCapStyle, LineJoinStyle, moveTo, lineTo, stroke, degrees} = PDFLib;
+  const src = await PDFDocument.load(D.bytes, {ignoreEncryption: true}), out = await PDFDocument.create(), font = await out.embedFont(StandardFonts.Helvetica);
+  const copied = await out.copyPages(src, D.pages.map(p => p.src));
+  for (let i = 0; i < D.pages.length; i++) {
+    const P = D.pages[i], pg = out.addPage(copied[i]);
+    if (P.extra) pg.setRotation(degrees((pg.getRotation().angle + P.extra) % 360));
+    if (!P.objs.length) continue;
+    const base = (await D.pdf.getPage(P.src + 1)).getViewport({scale: 1});
+    const o0 = base.convertToPdfPoint(0, 0), ox = base.convertToPdfPoint(1, 0), oy = base.convertToPdfPoint(0, 1);
+    pg.pushOperators(q(), cm(ox[0] - o0[0], ox[1] - o0[1], oy[0] - o0[0], oy[1] - o0[1], o0[0], o0[1]));
+    const img = async (src, x, y, w, h) => { const e = src.startsWith('data:image/png') ? await out.embedPng(dataBytes(src)) : await out.embedJpg(dataBytes(src)); pg.pushOperators(q(), cm(1, 0, 0, -1, x, y + h)); pg.drawImage(e, {x: 0, y: 0, width: w, height: h}); pg.pushOperators(Q()); };
+    for (const o of P.objs) {
+      if (o.type === 'rect') pg.drawRectangle({x: o.x, y: o.y, width: o.w, height: o.h, color: hexRgb(o.color), opacity: o.alpha, borderWidth: 0});
+      else if (o.type === 'ink') {
+        const ops = [q(), setStrokingColor(hexRgb(o.color)), setLineWidth(o.lw), setLineCap(LineCapStyle.Round), setLineJoin(LineJoinStyle.Round), moveTo(o.pts[0][0], o.pts[0][1])];
+        for (const p of o.pts.slice(1)) ops.push(lineTo(p[0], p[1])); ops.push(stroke(), Q()); pg.pushOperators(...ops);
+      } else if (o.type === 'text') {
+        if (!o.text.trim()) continue;
+        let ok = true; try { font.encodeText(o.text.replace(/\n/g, ' ')); } catch (e) { ok = false; }
+        if (ok) o.text.split('\n').forEach((l, k) => { pg.pushOperators(q(), cm(1, 0, 0, -1, o.x, o.y + o.size * (.8 + k * 1.2))); pg.drawText(l, {x: 0, y: 0, size: o.size, font, color: hexRgb(o.color)}); pg.pushOperators(Q()); });
+        else { const t = textImage(o); await img(t.src, o.x, o.y, t.w, t.h); }
+      } else if (o.type === 'img') await img(o.src, o.x, o.y, o.w, o.h);
+    }
+    pg.pushOperators(Q());
+  }
+  return new Blob([await out.save()], {type: 'application/pdf'});
+}
+$('#bSave').onclick = async () => {
+  const b = $('#bSave'); b.disabled = true; b.textContent = 'Gemmer…';
+  try {
+    const blob = await buildPdf(), name = D.name + ' (redigeret).pdf';
+    if (SL.canShareFiles() && /iPhone|iPad|Android/i.test(navigator.userAgent) && await SL.shareFiles([new File([blob], name, {type: 'application/pdf'})])) {} else SL.saveFile(blob, name);
+    SL.toast('PDF gemt');
+  } catch (e) { console.error(e); SL.toast('PDF\'en kunne ikke gemmes: ' + (e.message || e)); }
+  b.disabled = false; b.textContent = 'Gem';
+};
+
+/* Hent sidste dokument igen */
+(async () => {
+  const r = await DB.get('doc');
+  if (r && r.bytes) openBytes(new Uint8Array(await r.bytes.arrayBuffer()), r.name, r.pages);
+})();
+setTool('sel');
+window.SLpdf = {buildPdf, get D(){ return D; }};
+</script>
+</body>
+</html>
