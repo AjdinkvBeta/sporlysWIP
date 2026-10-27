@@ -841,7 +841,7 @@ function toast(t, ms){ const el = $('#toast'); el.textContent = t; el.hidden = f
 function camTrack(){ const s = video.srcObject; return s && s.getVideoTracks ? s.getVideoTracks()[0] : null; }
 function setFocusPick(on){
   focusPick = on; $('#bFocus').setAttribute('aria-pressed', on);
-  if (on) toast('Tryk der, hvor kameraet skal stille skarpt, fx på papiret eller din streg.', 4000);
+  if (on) toast('Kameraet stiller selv skarpt på skitsen. Tryk et andet sted, hvis det skal stille skarpt dér i stedet.', 4000);
 }
 // Skærmpunkt -> punkt i videobilledet (0–1), med object-fit: cover
 function screenToVideo(x, y){
@@ -849,32 +849,36 @@ function screenToVideo(x, y){
   const sc = Math.max(r.width / vw, r.height / vh), ox = (r.width - vw * sc) / 2, oy = (r.height - vh * sc) / 2;
   return {x: Math.min(1, Math.max(0, (x - r.left - ox) / sc / vw)), y: Math.min(1, Math.max(0, (y - r.top - oy) / sc / vh))};
 }
-async function focusAt(x, y){
-  setFocusPick(false);
-  const box = $('#focusBox'), r = stage.getBoundingClientRect();
-  box.style.left = (x - r.left) + 'px'; box.style.top = (y - r.top) + 'px';
-  box.classList.remove('ok'); box.hidden = true; void box.offsetWidth; box.hidden = false;
-  const tr = camTrack(); if (!tr || !video.videoWidth) { box.hidden = true; return; }
-  const p = screenToVideo(x, y);
+// Bed kameraet stille skarpt på et punkt (0–1 i videobilledet). Returnerer 'point', 'once' eller false.
+async function applyFocus(p){
+  const tr = camTrack(); if (!tr || !video.videoWidth) return false;
   let c = {}, st = {};
   try { c = tr.getCapabilities ? tr.getCapabilities() : {}; } catch (e) {}
   try { st = tr.getSettings ? tr.getSettings() : {}; } catch (e) {}
   const modes = Array.isArray(c.focusMode) ? c.focusMode : [];
   const canPoint = 'pointsOfInterest' in st || 'pointsOfInterest' in c;
-  const tries = [];
+  let adv = null;
   if (canPoint) {
+    adv = {pointsOfInterest: [p]};
     const mode = modes.includes('single-shot') ? 'single-shot' : modes.includes('continuous') ? 'continuous' : null;
-    const adv = {pointsOfInterest: [p]}; if (mode) adv.focusMode = mode;
+    if (mode) adv.focusMode = mode;
     if (Array.isArray(c.exposureMode) && c.exposureMode.includes('single-shot')) adv.exposureMode = 'single-shot';
-    tries.push(adv);
-  } else if (modes.includes('single-shot')) tries.push({focusMode: 'single-shot'});
-  let ok = false;
-  for (const adv of tries) { try { await tr.applyConstraints({advanced: [adv]}); ok = true; break; } catch (e) {} }
-  if (ok) {
-    box.classList.add('ok');
-    toast(canPoint ? 'Skarpt her. Fokus bliver holdt, til du trykker igen.' : 'Kameraet har stillet skarpt én gang. Det kan ikke vælge et bestemt punkt.', 3000);
-    // Hold fokus låst bagefter, så hånden ikke får kameraet til at stille om
-    if (modes.includes('manual')) setTimeout(() => { tr.applyConstraints({advanced: [{focusMode: 'manual'}]}).catch(() => {}); }, 900);
+  } else if (modes.includes('single-shot')) adv = {focusMode: 'single-shot'};
+  if (!adv) return false;
+  try { await tr.applyConstraints({advanced: [adv]}); } catch (e) { return false; }
+  // Hold fokus bagefter, så hånden ikke får kameraet til at stille om
+  if (modes.includes('manual')) setTimeout(() => { if (camTrack() === tr) tr.applyConstraints({advanced: [{focusMode: 'manual'}]}).catch(() => {}); }, 900);
+  return canPoint ? 'point' : 'once';
+}
+async function focusAt(x, y){
+  setFocusPick(false);
+  const box = $('#focusBox'), r = stage.getBoundingClientRect();
+  box.style.left = (x - r.left) + 'px'; box.style.top = (y - r.top) + 'px';
+  box.classList.remove('ok'); box.hidden = true; void box.offsetWidth; box.hidden = false;
+  const res = await applyFocus(screenToVideo(x, y));
+  if (res) {
+    box.classList.add('ok'); AF.manualUntil = performance.now() + 15000;
+    toast(res === 'point' ? 'Skarpt her. Automatisk fokus på skitsen holder pause lidt.' : 'Kameraet har stillet skarpt én gang. Det kan ikke vælge et bestemt punkt.', 3000);
   } else {
     box.hidden = true;
     toast(fdOK() ? 'Telefonen lader ikke siden vælge et fokuspunkt. Brug Manuel skarphed under Juster i stedet.'
@@ -882,14 +886,37 @@ async function focusAt(x, y){
   }
   setTimeout(() => { box.hidden = true; }, 1500);
 }
+/* Automatisk fokus på skitsen: kameraet stiller skarpt der, hvor skitsen ligger, og igen når den flyttes eller du går tættere på */
+const AF = {last: null, at: 0, manualUntil: 0, unsupported: false, busy: false};
+function sketchSpot(){
+  const r = stage.getBoundingClientRect();
+  if (S.tracking && A.sm) {
+    const c = A.sm.reduce((a, p) => [a[0] + p[0] / 4, a[1] + p[1] / 4], [0, 0]);
+    return {x: c[0] + r.left, y: c[1] + r.top, size: Math.sqrt(polyArea(A.sm))};
+  }
+  return {x: S.x + r.left, y: S.y + r.top, size: S.s * Math.sqrt(S.W * S.H)};
+}
+setInterval(async () => {
+  if (AF.busy || AF.unsupported || S.mode !== 'camera' || !camOK || focusPick || ptrs.size || peeking) return;
+  const now = performance.now(); if (now < AF.manualUntil || now - AF.at < 1500) return;
+  if (S.tracking && A.T && A.T.lost > 3) return;
+  const sp = sketchSpot(), L = AF.last;
+  const moved = !L || Math.hypot(sp.x - L.x, sp.y - L.y) > 60 || sp.size / L.size > 1.12 || L.size / sp.size > 1.12;
+  if (!moved || fdManual) return;
+  AF.busy = true; AF.at = now;
+  const res = await applyFocus(screenToVideo(sp.x, sp.y));
+  AF.busy = false;
+  if (res) AF.last = sp; else AF.unsupported = true;
+}, 600);
 function fdOK(){ try { const c = camTrack().getCapabilities(); return !!(c.focusDistance && c.focusDistance.max > c.focusDistance.min); } catch (e) { return false; } }
 function renderFocusUI(){
   const f = $('#fdField'); f.hidden = !camOK || !fdOK();
 }
+let fdManual = false;
 $('#rFd').oninput = e => {
   const tr = camTrack(); if (!tr) return;
-  const v = +e.target.value;
-  if (!v) { $('#oFd').textContent = 'Auto'; tr.applyConstraints({advanced: [{focusMode: 'continuous'}]}).catch(() => {}); return; }
+  const v = +e.target.value; fdManual = v > 0;
+  if (!v) { AF.last = null; $('#oFd').textContent = 'Auto'; tr.applyConstraints({advanced: [{focusMode: 'continuous'}]}).catch(() => {}); return; }
   try {
     const c = tr.getCapabilities().focusDistance, d = c.min + (c.max - c.min) * (v / 1000);
     $('#oFd').textContent = (d < 1 ? Math.round(d * 100) + ' cm' : d.toFixed(1).replace('.', ',') + ' m');
@@ -962,7 +989,7 @@ async function switchCam(id){
   stopStream();
   try { video.srcObject = await openStream(dev); await video.play().catch(() => {}); camOK = true; setMode('camera'); }
   catch (e) { try { video.srcObject = await openStream(null); await video.play().catch(() => {}); } catch (e2) { camOK = false; setMode('light'); } }
-  renderCamSel(); renderFocusUI(); $('#rFd').value = 0; $('#oFd').textContent = 'Auto';
+  renderCamSel(); renderFocusUI(); $('#rFd').value = 0; $('#oFd').textContent = 'Auto'; fdManual = false; AF.last = null; AF.unsupported = false;
 }
 function showNotice(t){ $('#nText').textContent = t; $('#notice').hidden = false; }
 function hideNotice(){ $('#notice').hidden = true; }
