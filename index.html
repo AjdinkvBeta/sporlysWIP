@@ -45,6 +45,12 @@ button{font:inherit;color:inherit}
   background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px;display:flex;gap:8px;align-items:center;white-space:nowrap}
 #status b{width:8px;height:8px;border-radius:50%;background:var(--warn)}
 #status.ok b{background:var(--ok)}
+#focusBox{position:absolute;width:72px;height:72px;margin:-36px 0 0 -36px;border:2px solid var(--accent);border-radius:6px;pointer-events:none;box-shadow:0 0 0 1px #0006}
+#focusBox.ok{border-color:var(--ok)}
+@media (prefers-reduced-motion:no-preference){#focusBox{animation:fpulse .5s ease-out}}
+@keyframes fpulse{from{transform:scale(1.5);opacity:.4}to{transform:scale(1);opacity:1}}
+#toast{position:absolute;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 104px);max-width:min(420px,calc(100% - 32px));
+  background:var(--panel-solid);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:13px;text-align:center}
 
 #notice{position:absolute;left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));
   top:calc(env(safe-area-inset-top,0px) + 66px);max-width:460px;margin:0 auto;background:var(--panel-solid);border:1px solid var(--line);
@@ -114,6 +120,9 @@ select{font:inherit;color:var(--fg);background:#ffffff12;border:1px solid var(--
     <button class="icon" id="bTrack" aria-pressed="false" title="Fastgør til papiret" aria-label="Fastgør til papiret" hidden>
       <svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>
     </button>
+    <button class="icon" id="bFocus" aria-pressed="false" title="Vælg hvor kameraet stiller skarpt" aria-label="Vælg hvor kameraet stiller skarpt" hidden>
+      <svg viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><circle cx="12" cy="12" r="2.5"/></svg>
+    </button>
     <button class="icon" id="bLock" aria-pressed="false" title="Lås billedet" aria-label="Lås billedet">
       <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path id="shackle" d="M8 11V8a4 4 0 0 1 8 0"/></svg>
     </button>
@@ -122,6 +131,8 @@ select{font:inherit;color:var(--fg);background:#ffffff12;border:1px solid var(--
     </button>
   </header>
 
+  <div id="focusBox" hidden></div>
+  <div id="toast" hidden aria-live="polite"></div>
   <div id="status" hidden><b></b><span>Leder efter papir…</span></div>
 
   <div id="notice" hidden>
@@ -167,6 +178,11 @@ select{font:inherit;color:var(--fg);background:#ffffff12;border:1px solid var(--
           <label class="label" for="camSel">Kamera</label>
           <select id="camSel"></select>
           <p class="hint">Hopper billedet eller bliver uskarpt tæt på papiret, så vælg et andet kamera her.</p>
+        </div>
+        <div class="field" id="fdField" hidden>
+          <div class="top"><span>Manuel skarphed</span><output id="oFd">Auto</output></div>
+          <input type="range" id="rFd" min="0" max="1000" value="0">
+          <p class="hint">Træk for at stille skarpt på papiret selv. Helt til venstre er automatisk.</p>
         </div>
         <div id="photoOpts" hidden class="field" style="gap:12px">
           <div class="label">Valgt billede</div>
@@ -819,6 +835,69 @@ function setStatus(){
 }
 
 /* ---------- Kamera og tilstande ---------- */
+/* ---------- Tryk for at fokusere ---------- */
+let focusPick = false, toastT = 0;
+function toast(t, ms){ const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, ms || 3500); }
+function camTrack(){ const s = video.srcObject; return s && s.getVideoTracks ? s.getVideoTracks()[0] : null; }
+function setFocusPick(on){
+  focusPick = on; $('#bFocus').setAttribute('aria-pressed', on);
+  if (on) toast('Tryk der, hvor kameraet skal stille skarpt, fx på papiret eller din streg.', 4000);
+}
+// Skærmpunkt -> punkt i videobilledet (0–1), med object-fit: cover
+function screenToVideo(x, y){
+  const r = stage.getBoundingClientRect(), vw = video.videoWidth, vh = video.videoHeight;
+  const sc = Math.max(r.width / vw, r.height / vh), ox = (r.width - vw * sc) / 2, oy = (r.height - vh * sc) / 2;
+  return {x: Math.min(1, Math.max(0, (x - r.left - ox) / sc / vw)), y: Math.min(1, Math.max(0, (y - r.top - oy) / sc / vh))};
+}
+async function focusAt(x, y){
+  setFocusPick(false);
+  const box = $('#focusBox'), r = stage.getBoundingClientRect();
+  box.style.left = (x - r.left) + 'px'; box.style.top = (y - r.top) + 'px';
+  box.classList.remove('ok'); box.hidden = true; void box.offsetWidth; box.hidden = false;
+  const tr = camTrack(); if (!tr || !video.videoWidth) { box.hidden = true; return; }
+  const p = screenToVideo(x, y);
+  let c = {}, st = {};
+  try { c = tr.getCapabilities ? tr.getCapabilities() : {}; } catch (e) {}
+  try { st = tr.getSettings ? tr.getSettings() : {}; } catch (e) {}
+  const modes = Array.isArray(c.focusMode) ? c.focusMode : [];
+  const canPoint = 'pointsOfInterest' in st || 'pointsOfInterest' in c;
+  const tries = [];
+  if (canPoint) {
+    const mode = modes.includes('single-shot') ? 'single-shot' : modes.includes('continuous') ? 'continuous' : null;
+    const adv = {pointsOfInterest: [p]}; if (mode) adv.focusMode = mode;
+    if (Array.isArray(c.exposureMode) && c.exposureMode.includes('single-shot')) adv.exposureMode = 'single-shot';
+    tries.push(adv);
+  } else if (modes.includes('single-shot')) tries.push({focusMode: 'single-shot'});
+  let ok = false;
+  for (const adv of tries) { try { await tr.applyConstraints({advanced: [adv]}); ok = true; break; } catch (e) {} }
+  if (ok) {
+    box.classList.add('ok');
+    toast(canPoint ? 'Skarpt her. Fokus bliver holdt, til du trykker igen.' : 'Kameraet har stillet skarpt én gang. Det kan ikke vælge et bestemt punkt.', 3000);
+    // Hold fokus låst bagefter, så hånden ikke får kameraet til at stille om
+    if (modes.includes('manual')) setTimeout(() => { tr.applyConstraints({advanced: [{focusMode: 'manual'}]}).catch(() => {}); }, 900);
+  } else {
+    box.hidden = true;
+    toast(fdOK() ? 'Telefonen lader ikke siden vælge et fokuspunkt. Brug Manuel skarphed under Juster i stedet.'
+      : 'Din telefon lader ikke hjemmesider styre kameraets fokus. Hold telefonen lidt længere fra papiret, eller vælg et andet kamera under Juster.', 5500);
+  }
+  setTimeout(() => { box.hidden = true; }, 1500);
+}
+function fdOK(){ try { const c = camTrack().getCapabilities(); return !!(c.focusDistance && c.focusDistance.max > c.focusDistance.min); } catch (e) { return false; } }
+function renderFocusUI(){
+  const f = $('#fdField'); f.hidden = !camOK || !fdOK();
+}
+$('#rFd').oninput = e => {
+  const tr = camTrack(); if (!tr) return;
+  const v = +e.target.value;
+  if (!v) { $('#oFd').textContent = 'Auto'; tr.applyConstraints({advanced: [{focusMode: 'continuous'}]}).catch(() => {}); return; }
+  try {
+    const c = tr.getCapabilities().focusDistance, d = c.min + (c.max - c.min) * (v / 1000);
+    $('#oFd').textContent = (d < 1 ? Math.round(d * 100) + ' cm' : d.toFixed(1).replace('.', ',') + ' m');
+    tr.applyConstraints({advanced: [{focusMode: 'manual', focusDistance: d}]}).catch(() => {});
+  } catch (e) {}
+};
+$('#bFocus').onclick = () => setFocusPick(!focusPick);
+
 /* Kameravalg: iPhones med flere linser skifter selv linse tæt på papiret, så billedet hopper og bliver uskarpt.
    Vi vælger derfor ét fast kamera (hovedlinsen), og man kan selv skifte under Juster. */
 const CAMKEY = 'sporlys:cam';
@@ -868,7 +947,7 @@ async function startCamera(){
     }
     await video.play().catch(() => {});
     camOK = true; setMode('camera');
-    await listCams(); renderCamSel();
+    await listCams(); renderCamSel(); renderFocusUI();
   } catch (e) {
     camOK = false; setMode('light');
     showNotice(e && e.name === 'NotAllowedError' && window.top === window
@@ -883,7 +962,7 @@ async function switchCam(id){
   stopStream();
   try { video.srcObject = await openStream(dev); await video.play().catch(() => {}); camOK = true; setMode('camera'); }
   catch (e) { try { video.srcObject = await openStream(null); await video.play().catch(() => {}); } catch (e2) { camOK = false; setMode('light'); } }
-  renderCamSel();
+  renderCamSel(); renderFocusUI(); $('#rFd').value = 0; $('#oFd').textContent = 'Auto';
 }
 function showNotice(t){ $('#nText').textContent = t; $('#notice').hidden = false; }
 function hideNotice(){ $('#notice').hidden = true; }
@@ -894,6 +973,8 @@ function setMode(m){
   $('#mCam').setAttribute('aria-pressed', m === 'camera');
   $('#mLight').setAttribute('aria-pressed', m === 'light');
   $('#bTrack').hidden = m !== 'camera';
+  $('#bFocus').hidden = m !== 'camera';
+  if (m !== 'camera') setFocusPick(false);
   if (m === 'light' && S.tracking) setTracking(false);
   $('#modeHint').textContent = m === 'light'
     ? 'Lysbord: skru lysstyrken helt op, lås billedet, læg tyndt papir over skærmen og tegn efter stregerne.'
@@ -942,6 +1023,7 @@ function startGesture(){
 }
 stage.addEventListener('pointerdown', e => {
   wake();
+  if (focusPick) { e.preventDefault(); focusAt(e.clientX, e.clientY); return; }
   if (S.locked || (S.tracking && S.mode === 'camera')) return;
   stage.setPointerCapture(e.pointerId);
   ptrs.set(e.pointerId, {x:e.clientX, y:e.clientY}); startGesture();
