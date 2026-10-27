@@ -110,6 +110,7 @@ details summary{cursor:pointer}
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 /* Sprog: [navn, tesseract-kode, oversættelseskode] */
 const FROM = [
+  ['Automatisk (alle alfabeter)', 'auto', 'auto'],
   ['Europæiske (latinske bogstaver)', 'eng+dan+deu+fra+spa+ita+por+nld+swe+nor', 'auto'],
   ['Engelsk', 'eng', 'en'], ['Dansk', 'dan', 'da'], ['Tysk', 'deu', 'de'], ['Fransk', 'fra', 'fr'], ['Spansk', 'spa', 'es'], ['Italiensk', 'ita', 'it'],
   ['Portugisisk', 'por', 'pt'], ['Hollandsk', 'nld', 'nl'], ['Svensk', 'swe', 'sv'], ['Norsk', 'nor', 'no'], ['Finsk', 'fin', 'fi'], ['Polsk', 'pol', 'pl'],
@@ -120,8 +121,9 @@ const FROM = [
 ];
 const TO = [['Dansk', 'da'], ['Engelsk', 'en'], ['Tysk', 'de'], ['Svensk', 'sv'], ['Norsk', 'no'], ['Fransk', 'fr'], ['Spansk', 'es'], ['Italiensk', 'it'], ['Polsk', 'pl'],
   ['Bosnisk', 'bs'], ['Kroatisk', 'hr'], ['Serbisk', 'sr'], ['Tyrkisk', 'tr'], ['Russisk', 'ru'], ['Ukrainsk', 'uk'], ['Arabisk', 'ar'], ['Kinesisk', 'zh-CN'], ['Japansk', 'ja'], ['Koreansk', 'ko'], ['Thai', 'th']];
-const ST = {from: 1, to: 'da', mode: 'cam', prov: 'mm', email: '', key: ''};
-try { Object.assign(ST, JSON.parse(localStorage.getItem('sporlys:oversaet') || '{}')); } catch (e) {}
+const ST = {from: 0, v: 2, to: 'da', mode: 'cam', prov: 'mm', email: '', key: ''};
+try { const o = JSON.parse(localStorage.getItem('sporlys:oversaet') || '{}'); if (o.v !== 2 && typeof o.from === 'number') { o.from = 0; o.v = 2; } Object.assign(ST, o); } catch (e) {}
+if (!(ST.from >= 0 && ST.from < 40)) ST.from = 0;
 const saveST = () => { try { localStorage.setItem('sporlys:oversaet', JSON.stringify(ST)); } catch (e) {} };
 $('#from').innerHTML = FROM.map(([n], i) => `<option value="${i}">${n}</option>`).join('');
 $('#to').innerHTML = TO.map(([n, c]) => `<option value="${c}">${n}</option>`).join('');
@@ -197,8 +199,32 @@ function loadTess(){
   }));
 }
 let progressCb = null;
+/* Automatisk: find alfabetet i billedet og vælg de passende sprog */
+const SCRIPT_LANG = {Latin: 'eng+dan+deu+fra+spa+ita+por+nld+swe+nor+pol', Cyrillic: 'rus+ukr+bul+srp', Han: 'chi_sim', HanS: 'chi_sim', HanT: 'chi_tra', Japanese: 'jpn', Katakana: 'jpn', Hiragana: 'jpn',
+  Hangul: 'kor', Korean: 'kor', Arabic: 'ara+fas', Hebrew: 'heb', Greek: 'ell', Thai: 'tha', Devanagari: 'hin'};
+const SCRIPT_DA = {Latin: 'latinske bogstaver', Cyrillic: 'kyrillisk', Han: 'kinesisk', HanS: 'kinesisk', HanT: 'kinesisk', Japanese: 'japansk', Katakana: 'japansk', Hiragana: 'japansk', Hangul: 'koreansk', Korean: 'koreansk',
+  Arabic: 'arabisk', Hebrew: 'hebraisk', Greek: 'græsk', Thai: 'thai', Devanagari: 'hindi'};
+let osd = null, osdFailed = false, autoLang = SCRIPT_LANG.Latin, autoScript = '', lastDetect = 0, emptyRuns = 0;
+async function detectScript(canvas){
+  if (osdFailed) return null;
+  try {
+    const T = await loadTess();
+    if (!osd) osd = await T.createWorker('osd', 0, {legacyCore: true, legacyLang: true, logger: m => { if (progressCb && m.status) progressCb(m); }});
+    const {data} = await osd.detect(canvas);
+    return data && data.script && (data.script_confidence == null || data.script_confidence > 1) ? data.script : null;
+  } catch (e) { osdFailed = true; return null; }
+}
+// Kaldes før genkendelse, når Fra er Automatisk
+async function autoPick(canvas, force){
+  const now = performance.now();
+  if (!force && autoScript && now - lastDetect < 8000 && emptyRuns < 2) return;
+  lastDetect = now;
+  const sc = await detectScript(canvas);
+  if (sc && SCRIPT_LANG[sc]) { autoScript = sc; autoLang = SCRIPT_LANG[sc]; emptyRuns = 0; }
+}
+const curLang = () => FROM[ST.from][1] === 'auto' ? autoLang : FROM[ST.from][1];
 async function getWorker(){
-  const lang = FROM[ST.from][1];
+  const lang = curLang();
   if (worker && workerLang === lang) return worker;
   const T = await loadTess();
   if (worker) { try { await worker.terminate(); } catch (e) {} worker = null; }
@@ -206,15 +232,18 @@ async function getWorker(){
   workerLang = lang; return worker;
 }
 const STATUS = {'loading tesseract core': 'Henter tekstgenkendelse', 'initializing tesseract': 'Starter tekstgenkendelse', 'loading language traineddata': 'Henter sprogdata', 'initializing api': 'Gør klar', 'recognizing text': 'Læser tekst'};
-async function ocr(canvas, statusEl){
+async function ocr(canvas, statusEl, forceDetect){
   progressCb = m => setStatus(statusEl, 'busy', (STATUS[m.status] || 'Arbejder') + (m.progress > 0 && m.progress < 1 && m.status !== 'recognizing text' ? ` ${Math.round(m.progress * 100)} %` : '') + '…');
+  if (FROM[ST.from][1] === 'auto') { setStatus(statusEl, 'busy', 'Finder alfabetet…'); await autoPick(canvas, forceDetect); }
   const w = await getWorker(), {data} = await w.recognize(canvas);
   progressCb = null;
-  const cjk = /^(chi|jpn|kor|tha)/.test(FROM[ST.from][1]);
+  const cjk = /^(chi|jpn|kor|tha)/.test(curLang());
   const lines = (data.lines || []).map(l => ({text: (cjk ? l.text.replace(/\s+/g, '') : l.text.replace(/\s+/g, ' ')).trim(), box: l.bbox, conf: l.confidence}))
     .filter(l => l.text.length >= (cjk ? 1 : 2) && l.conf > 45 && /\p{L}/u.test(l.text));
+  emptyRuns = lines.length ? 0 : emptyRuns + 1;
   return {lines, text: lines.map(l => l.text).join('\n')};
 }
+const scriptNote = () => FROM[ST.from][1] === 'auto' ? (osdFailed ? ' · alfabetet kunne ikke genkendes, vælg sprog under Fra' : autoScript ? ' · ' + SCRIPT_DA[autoScript] : '') : '';
 function setStatus(el, cls, txt){ el.className = 'status ' + (cls || ''); el.querySelector('span').textContent = txt; }
 
 /* Tegn oversatte felter oven på teksten */
@@ -251,10 +280,10 @@ async function camLoop(){
       if (frozen) break;
       const from = srcCode(r.text);
       camLines = r.lines; frameW = grab.width; frameH = grab.height;
-      setStatus($('#camStatus'), 'busy', camLines.length ? 'Oversætter…' : 'Ingen tekst fundet. Hold kameraet roligt over teksten.');
+      setStatus($('#camStatus'), 'busy', camLines.length ? 'Oversætter…' : 'Ingen tekst fundet. Hold kameraet roligt over teksten.' + scriptNote());
       if (camLines.length) {
         const tr = await translateMany(camLines.map(l => l.text), from); camLines.forEach((l, i) => l.tr = tr[i]);
-        setStatus($('#camStatus'), 'ok', `${camLines.length} linjer · ${FROM.find(f => f[2] === from) ? FROM.find(f => f[2] === from)[0] : from}`);
+        setStatus($('#camStatus'), 'ok', `${camLines.length} linjer · ${FROM.find(f => f[2] === from) ? FROM.find(f => f[2] === from)[0] : from}${scriptNote()}`);
       }
       drawOverlay(camOv, frameW, frameH, camLines, camOrig); renderLines($('#camLines'), camLines); $('#camCopyRow').hidden = !camLines.length;
     } catch (e) { setStatus($('#camStatus'), '', e.message === 'kvote' ? 'Dagens gratis oversættelser er brugt op.' : (e.message || 'Noget gik galt.')); await new Promise(r => setTimeout(r, 1500)); }
@@ -291,13 +320,13 @@ async function doImage(f){
   } catch (e) { setStatus($('#imgStatus'), '', 'Billedet kunne ikke åbnes.'); return; }
   $('#imgView').hidden = false; $('#imgText').hidden = true; $('#imgCtl').hidden = true; drawOverlay($('#imgOv'), base.width, base.height, [], false);
   try {
-    const r = await ocr(base, $('#imgStatus')); imgLines = r.lines;
+    const r = await ocr(base, $('#imgStatus'), true); imgLines = r.lines;
     if (!imgLines.length) { setStatus($('#imgStatus'), '', 'Der blev ikke fundet tekst. Prøv et skarpere billede, eller vælg det rigtige sprog under Fra.'); return; }
     $('#imgO').textContent = r.text; $('#imgText').hidden = false; $('#imgT').textContent = '…';
     setStatus($('#imgStatus'), 'busy', 'Oversætter…');
     const from = srcCode(r.text), tr = await translateMany(imgLines.map(l => l.text), from); imgLines.forEach((l, i) => l.tr = tr[i]);
     $('#imgT').textContent = tr.join('\n'); $('#imgCtl').hidden = false;
-    drawOverlay($('#imgOv'), base.width, base.height, imgLines, imgOrig); setStatus($('#imgStatus'), 'ok', `${imgLines.length} linjer oversat`);
+    drawOverlay($('#imgOv'), base.width, base.height, imgLines, imgOrig); setStatus($('#imgStatus'), 'ok', `${imgLines.length} linjer oversat${scriptNote()}`);
   } catch (e) { setStatus($('#imgStatus'), '', e.message === 'kvote' ? 'Dagens gratis oversættelser er brugt op. Teksten står herunder.' : (e.message || 'Noget gik galt.')); }
 }
 $('#imgCam').onchange = e => { const f = e.target.files[0]; e.target.value = ''; doImage(f); };
@@ -336,7 +365,7 @@ $$('#prov button').forEach(b => b.onclick = () => { ST.prov = b.dataset.v; saveS
 $('#mmEmail').value = ST.email; $('#gKey').value = ST.key;
 $('#mmEmail').onchange = e => { ST.email = e.target.value.trim(); saveST(); };
 $('#gKey').onchange = e => { ST.key = e.target.value.trim(); saveST(); };
-$('#from').onchange = e => { ST.from = +e.target.value; saveST(); };
+$('#from').onchange = e => { ST.from = +e.target.value; autoScript = ''; saveST(); };
 $('#to').onchange = e => { ST.to = e.target.value; saveST(); };
 $('#swap').onclick = () => {
   const f = FROM[ST.from][2], t = ST.to, ni = FROM.findIndex(x => x[2] === t);
