@@ -89,6 +89,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px}
 .chip[aria-pressed="true"]{background:var(--fg);color:var(--ink);border-color:var(--fg)}
 .btn{border:0;border-radius:10px;padding:9px 14px;font-weight:700;cursor:pointer;background:var(--fg);color:var(--ink)}
 .btn.ghost{background:#ffffff12;color:var(--fg)}
+select{font:inherit;color:var(--fg);background:#ffffff12;border:1px solid var(--line);border-radius:10px;padding:9px 12px;width:100%;max-width:100%}
 .swatches{display:flex;gap:10px}
 .sw{width:34px;height:34px;border-radius:50%;border:2px solid var(--line);cursor:pointer}
 .sw[aria-pressed="true"]{border-color:var(--fg);box-shadow:0 0 0 2px var(--accent)}
@@ -162,6 +163,11 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px}
       </div>
 
       <div class="pane" id="pJuster" hidden>
+        <div class="field" id="camField" hidden>
+          <label class="label" for="camSel">Kamera</label>
+          <select id="camSel"></select>
+          <p class="hint">Hopper billedet eller bliver uskarpt tæt på papiret, så vælg et andet kamera her.</p>
+        </div>
         <div id="photoOpts" hidden class="field" style="gap:12px">
           <div class="label">Valgt billede</div>
           <div class="chips" id="viewChips" role="group" aria-label="Visning af billedet">
@@ -813,22 +819,71 @@ function setStatus(){
 }
 
 /* ---------- Kamera og tilstande ---------- */
+/* Kameravalg: iPhones med flere linser skifter selv linse tæt på papiret, så billedet hopper og bliver uskarpt.
+   Vi vælger derfor ét fast kamera (hovedlinsen), og man kan selv skifte under Juster. */
+const CAMKEY = 'sporlys:cam';
+let cams = [];
+const isBack = l => /back|rear|bag|environment|arrière|rück|trasera/i.test(l);
+const isMulti = l => /dual|triple|dobbel|tredob|dobbelt|tredobbelt|ultra|tele|vidvinkel|wide/i.test(l);
+function savedCam(){ try { return JSON.parse(localStorage.getItem(CAMKEY) || 'null'); } catch (e) { return null; } }
+async function listCams(){
+  try { cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput' && d.label); } catch (e) { cams = []; }
+  return cams;
+}
+function pickDefault(list){
+  const sv = savedCam();
+  if (sv) { const m = list.find(d => d.deviceId === sv.id) || list.find(d => d.label === sv.label); if (m) return m; }
+  // Hovedlinsen alene: et bagkamera uden "dual/triple/ultra/tele" i navnet, ellers det korteste navn
+  const back = list.filter(d => isBack(d.label));
+  return back.find(d => !isMulti(d.label)) || back.sort((a, b) => a.label.length - b.label.length)[0] || null;
+}
+async function openStream(dev){
+  const v = {width: {ideal: 1920}, height: {ideal: 1080}};
+  if (dev) v.deviceId = {exact: dev.deviceId}; else v.facingMode = {ideal: 'environment'};
+  return navigator.mediaDevices.getUserMedia({video: v, audio: false});
+}
+function stopStream(){ try { const s = video.srcObject; if (s) s.getTracks().forEach(t => t.stop()); } catch (e) {} video.srcObject = null; }
+function renderCamSel(){
+  const sel = $('#camSel'), back = cams.filter(d => isBack(d.label)), list = back.length ? back : cams;
+  $('#camField').hidden = !camOK || list.length < 2;
+  const cur = video.srcObject && video.srcObject.getVideoTracks()[0];
+  const curId = cur && cur.getSettings ? cur.getSettings().deviceId : null;
+  sel.innerHTML = '';
+  for (const d of list) { const o = document.createElement('option'); o.value = d.deviceId; o.textContent = d.label; if (d.deviceId === curId) o.selected = true; sel.appendChild(o); }
+}
 async function startCamera(){
   hideNotice();
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('nosupport');
     if (!video.srcObject) {
-      const s = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}, audio:false});
+      let s = await openStream(null);
+      // Skift til den faste hovedlinse, hvis browseren gav os et kamera, der selv skifter linse
+      const list = await listCams(), want = pickDefault(list), tr = s.getVideoTracks()[0];
+      const curId = tr && tr.getSettings ? tr.getSettings().deviceId : null;
+      if (want && want.deviceId !== curId) {
+        s.getTracks().forEach(t => t.stop());
+        try { s = await openStream(want); } catch (e) { s = await openStream(null); }
+      }
       video.srcObject = s;
     }
     await video.play().catch(() => {});
     camOK = true; setMode('camera');
+    await listCams(); renderCamSel();
   } catch (e) {
     camOK = false; setMode('light');
     showNotice(e && e.name === 'NotAllowedError' && window.top === window
       ? 'Du har afvist kameraet. Tillad det i browserens indstillinger for siden, og tryk Prøv igen.'
       : 'Denne visning giver ikke siden adgang til kameraet. Brug Lysbord, eller åbn Sporlys fra en almindelig https-adresse i Safari eller Chrome, så virker kameraet.');
   }
+}
+async function switchCam(id){
+  const dev = cams.find(d => d.deviceId === id); if (!dev) return;
+  if (S.tracking) setTracking(false);
+  try { localStorage.setItem(CAMKEY, JSON.stringify({id: dev.deviceId, label: dev.label})); } catch (e) {}
+  stopStream();
+  try { video.srcObject = await openStream(dev); await video.play().catch(() => {}); camOK = true; setMode('camera'); }
+  catch (e) { try { video.srcObject = await openStream(null); await video.play().catch(() => {}); } catch (e2) { camOK = false; setMode('light'); } }
+  renderCamSel();
 }
 function showNotice(t){ $('#nText').textContent = t; $('#notice').hidden = false; }
 function hideNotice(){ $('#notice').hidden = true; }
@@ -1423,6 +1478,7 @@ $('#cCenter').onclick = () => fitOverlay();
 $('#cPersp').onclick = () => { S.persp = !S.persp; $('#cPersp').setAttribute('aria-pressed', S.persp); save(); };
 
 $('#mCam').onclick = () => startCamera();
+$('#camSel').onchange = e => switchCam(e.target.value);
 $('#mLight').onclick = () => { hideNotice(); setMode('light'); };
 $('#nLight').onclick = () => { hideNotice(); setMode('light'); };
 $('#nRetry').onclick = () => startCamera();
