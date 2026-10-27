@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/menu.css">
+<style>
+#edWrap{position:relative;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:12px;overflow:hidden;background:#000;justify-self:center;max-width:100%}
+#edCanvas{display:block;max-width:100%}
+#preview{display:block;max-width:100%;max-height:46vh;margin:0 auto;border-radius:8px;background:#fff}
+.pages{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
+.page{position:relative;background:var(--panel2);border-radius:12px;padding:6px;display:grid;gap:6px;border:2px solid transparent}
+.page[aria-current="true"]{border-color:var(--accent)}
+.page img{width:100%;aspect-ratio:3/4;object-fit:contain;background:#fff;border-radius:6px;cursor:pointer}
+.page .n{position:absolute;top:10px;left:10px;background:#000b;color:#fff;border-radius:6px;padding:1px 7px;font-size:12px;font-weight:700}
+.page .row{justify-content:center;gap:4px}
+.page .ib{width:30px;height:30px}
+.big{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.big .btn{justify-content:center;padding:16px 12px;font-size:16px}
+.big .btn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+@media (max-width:420px){.big{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="appbtn" data-appmenu aria-label="Skift værktøj"><i></i>Scanner<span class="chev">▾</span></button>
+  <div class="spacer"></div>
+  <button class="btn ghost" id="bNew" hidden>Ny scanning</button>
+</header>
+
+<main>
+  <section class="card" id="addCard">
+    <div class="big">
+      <label class="btn accent" for="fCam"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Tag billede</label>
+      <label class="btn ghost" for="fPick"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>Vælg billeder</label>
+    </div>
+    <input type="file" id="fCam" accept="image/*" capture="environment" hidden>
+    <input type="file" id="fPick" accept="image/*" multiple hidden>
+    <p class="hint" id="addHint">Læg papiret på et mørkere underlag med hele arket i billedet. Scanneren finder selv kanterne og retter siden op. Telefonens eget kamera stiller skarpt, så tag gerne billedet i godt lys.</p>
+  </section>
+
+  <section class="card" id="edCard" hidden>
+    <div class="row" style="justify-content:space-between">
+      <h2 id="edTitle">Side 1</h2>
+      <div class="seg" role="group" aria-label="Visning">
+        <button id="vCorners" aria-pressed="true">Hjørner</button>
+        <button id="vResult" aria-pressed="false">Resultat</button>
+      </div>
+    </div>
+    <div id="cornerView" class="field" style="gap:10px">
+      <div id="edWrap"><canvas id="edCanvas"></canvas></div>
+      <p class="hint">Træk i de fire hjørner, så de sidder præcist på papirets hjørner.</p>
+      <div class="row">
+        <button class="chip" id="bAuto">Find kanter igen</button>
+        <button class="chip" id="bFull">Hele billedet</button>
+      </div>
+    </div>
+    <div id="resultView" class="field" style="gap:10px" hidden>
+      <canvas id="preview"></canvas>
+    </div>
+    <div class="field">
+      <span class="label">Filter</span>
+      <div class="seg" role="group" aria-label="Filter" id="filters">
+        <button data-f="enh" aria-pressed="true">Forbedret</button>
+        <button data-f="gray" aria-pressed="false">Gråtone</button>
+        <button data-f="bw" aria-pressed="false">Sort-hvid</button>
+        <button data-f="orig" aria-pressed="false">Original</button>
+      </div>
+    </div>
+    <div class="row">
+      <button class="chip" id="bRot">Drej 90°</button>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="bCancel">Annullér</button>
+      <button class="btn accent" id="bSave">Gem side</button>
+    </div>
+  </section>
+
+  <section class="card" id="pagesCard" hidden>
+    <div class="row" style="justify-content:space-between"><h2>Sider</h2><span class="hint" id="pCount"></span></div>
+    <div class="pages" id="pages"></div>
+  </section>
+
+  <section class="card" id="expCard" hidden>
+    <h2>Gem scanningen</h2>
+    <div class="field">
+      <label class="label" for="fname">Filnavn</label>
+      <input type="text" id="fname">
+    </div>
+    <div class="field">
+      <span class="label">Sidestørrelse i PDF</span>
+      <div class="seg" role="group" aria-label="Sidestørrelse">
+        <button id="szA4" aria-pressed="true">A4</button>
+        <button id="szFit" aria-pressed="false">Som billedet</button>
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn accent" id="bPdf">Gem PDF</button>
+      <button class="btn ghost" id="bSharePdf" hidden>Del PDF</button>
+      <button class="btn ghost" id="bJpg">Gem som billeder</button>
+      <button class="btn ghost" id="bSporlys">Tegn efter i Sporlys</button>
+    </div>
+    <p class="hint">PDF'en havner i Filer under Overførsler. Med Del kan du sende den direkte til Mail, Noter eller Drev.</p>
+  </section>
+</main>
+
+<script src="assets/common.js"></script>
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const DB = SL.store('sporlys-scanner');
+
+/* ---------- Billedmatematik ---------- */
+function solve(A, b){
+  const n = b.length;
+  for (let i = 0; i < n; i++) {
+    let m = i; for (let k = i+1; k < n; k++) if (Math.abs(A[k][i]) > Math.abs(A[m][i])) m = k;
+    [A[i], A[m]] = [A[m], A[i]]; [b[i], b[m]] = [b[m], b[i]];
+    const p = A[i][i]; if (Math.abs(p) < 1e-12) return null;
+    for (let k = i+1; k < n; k++) { const f = A[k][i] / p; for (let j = i; j < n; j++) A[k][j] -= f * A[i][j]; b[k] -= f * b[i]; }
+  }
+  const x = new Array(n);
+  for (let i = n-1; i >= 0; i--) { let s = b[i]; for (let j = i+1; j < n; j++) s -= A[i][j] * x[j]; x[i] = s / A[i][i]; }
+  return x;
+}
+function homography(src, dst){
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) { const [x, y] = src[i], [u, v] = dst[i]; A.push([x, y, 1, 0, 0, 0, -u*x, -u*y]); b.push(u); A.push([0, 0, 0, x, y, 1, -v*x, -v*y]); b.push(v); }
+  const h = solve(A, b); return h ? [...h, 1] : null;
+}
+const dist = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1]);
+function blurA(a, w, h, r){
+  if (r <= 0) return a;
+  const b = new Float32Array(a.length), o = new Float32Array(a.length);
+  for (let y = 0; y < h; y++) { let acc = 0, cnt = 0; const row = y*w;
+    for (let x = -r; x < w; x++) { if (x + r < w) { acc += a[row+x+r]; cnt++; } if (x - r - 1 >= 0) { acc -= a[row+x-r-1]; cnt--; } if (x >= 0) b[row+x] = acc / cnt; } }
+  for (let x = 0; x < w; x++) { let acc = 0, cnt = 0;
+    for (let y = -r; y < h; y++) { if (y + r < h) { acc += b[(y+r)*w+x]; cnt++; } if (y - r - 1 >= 0) { acc -= b[(y-r-1)*w+x]; cnt--; } if (y >= 0) o[y*w+x] = acc / cnt; } }
+  return o;
+}
+function polyArea(q){ let a = 0; for (let i = 0; i < q.length; i++) { const p = q[i], n = q[(i+1) % q.length]; a += p[0]*n[1] - n[0]*p[1]; } return Math.abs(a) / 2; }
+function hull(pts){
+  pts = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cr = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]), lo = [], up = [];
+  for (const p of pts) { while (lo.length >= 2 && cr(lo[lo.length-2], lo[lo.length-1], p) <= 0) lo.pop(); lo.push(p); }
+  for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (up.length >= 2 && cr(up[up.length-2], up[up.length-1], p) <= 0) up.pop(); up.push(p); }
+  up.pop(); lo.pop(); return lo.concat(up);
+}
+// Største firkant med hjørner på en konveks hylster (lokal forbedring fra yderpunkterne)
+function bestQuad(H){
+  if (H.length < 4) return null;
+  const pick = f => H.reduce((b, p) => f(p) > f(b) ? p : b, H[0]);
+  let q = [pick(p => -p[0]-p[1]), pick(p => p[0]-p[1]), pick(p => p[0]+p[1]), pick(p => -p[0]+p[1])];
+  for (let pass = 0; pass < 4; pass++) for (let i = 0; i < 4; i++) {
+    let best = q[i], ba = polyArea(q);
+    for (const p of H) { const t = q.slice(); t[i] = p; const a = polyArea(t); if (a > ba) { ba = a; best = p; } }
+    q[i] = best;
+  }
+  return q;
+}
+// Find dokumentets fire hjørner (0–1-koordinater) i et billede
+function detectQuad(src){
+  const S = 320, k = Math.min(1, S / Math.max(src.width, src.height));
+  const w = Math.max(8, Math.round(src.width * k)), h = Math.max(8, Math.round(src.height * k)), n = w*h;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d', {willReadFrequently: true}); ctx.drawImage(src, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  let R = new Float32Array(n), G = new Float32Array(n), B = new Float32Array(n);
+  for (let i = 0; i < n; i++) { R[i] = d[i*4]; G[i] = d[i*4+1]; B[i] = d[i*4+2]; }
+  R = blurA(R, w, h, 2); G = blurA(G, w, h, 2); B = blurA(B, w, h, 2);
+  const L = new Float32Array(n); for (let i = 0; i < n; i++) L[i] = .3*R[i] + .59*G[i] + .11*B[i];
+  const grad = new Float32Array(n);
+  for (let y = 1; y < h-1; y++) for (let x = 1; x < w-1; x++) { const i = y*w+x; grad[i] = Math.abs(L[i+1]-L[i-1]) + Math.abs(L[i+w]-L[i-w]); }
+  const gs = Float32Array.from(grad).sort();
+  // Frøfarve: medianen af midterfeltet
+  const cs = [];
+  for (let y = Math.round(h*.4); y < h*.6; y++) for (let x = Math.round(w*.4); x < w*.6; x++) cs.push(y*w+x);
+  const med = a => { const v = cs.map(i => a[i]).sort((p, q) => p - q); return v[v.length >> 1]; };
+  const sr = med(R), sg = med(G), sb = med(B);
+  const cand = [];
+  // Hvor kraftig er kanten langs en linje? (papirets kant giver en tydelig kant)
+  const lineGrad = (a, b) => {
+    let s = 0, c = 0;
+    for (let t = .1; t <= .9; t += .02) { const x = Math.round(a[0] + (b[0]-a[0])*t), y = Math.round(a[1] + (b[1]-a[1])*t); if (x > 0 && y > 0 && x < w-1 && y < h-1) { s += grad[y*w+x]; c++; } }
+    return c ? s / c : 0;
+  };
+  const gmed = gs[gs.length >> 1] + 1;
+  const edgeScore = q => { let s = 0; for (let i = 0; i < 4; i++) s += Math.min(4, lineGrad(q[i], q[(i+1)%4]) / (gmed * 3)); return s / 4; };
+  const quadFromMask = m => {
+    // Fyld huller: alt der ikke kan nås fra kanten uden at krydse masken
+    const out = new Uint8Array(n), st = new Int32Array(n); let sp = 0;
+    const pushIf = i => { if (!m[i] && !out[i]) { out[i] = 1; st[sp++] = i; } };
+    for (let x = 0; x < w; x++) { pushIf(x); pushIf((h-1)*w+x); }
+    for (let y = 0; y < h; y++) { pushIf(y*w); pushIf(y*w+w-1); }
+    while (sp) { const i = st[--sp], x = i % w; if (x > 0) pushIf(i-1); if (x < w-1) pushIf(i+1); if (i >= w) pushIf(i-w); if (i < n-w) pushIf(i+w); }
+    let area = 0; const pts = [];
+    for (let y = 0; y < h; y++) { let l = -1, r = -1; for (let x = 0; x < w; x++) if (!out[y*w+x]) { area++; if (l < 0) l = x; r = x; } if (l >= 0) { pts.push([l, y]); pts.push([r + 1, y]); } }
+    if (area < n * .08 || area > n * .985) return null;
+    const q = bestQuad(hull(pts)); if (!q) return null;
+    const qa = polyArea(q), fill = area / qa;
+    return {q, fill: Math.min(fill, 1 / fill), area: qa / n, edge: edgeScore(q)};
+  };
+  for (const T of [16, 26, 38, 54]) for (const gp of [.8, .9]) {
+    const gt = gs[Math.floor(gs.length * gp)] + 4, m = new Uint8Array(n), st = new Int32Array(n); let sp = 0;
+    for (const i of cs) { m[i] = 1; st[sp++] = i; }
+    while (sp) {
+      const i = st[--sp], x = i % w;
+      for (const j of [x > 0 ? i-1 : -1, x < w-1 ? i+1 : -1, i >= w ? i-w : -1, i < n-w ? i+w : -1]) {
+        if (j < 0 || m[j]) continue;
+        if (Math.hypot(R[j]-sr, G[j]-sg, B[j]-sb) < T && grad[j] < gt) { m[j] = 1; st[sp++] = j; }
+      }
+    }
+    const r = quadFromMask(m); if (r) cand.push(r);
+  }
+  // Reserve: største lyse område (Otsu)
+  { const hist = new Uint32Array(256); for (let i = 0; i < n; i++) hist[L[i] | 0]++;
+    let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+    let sB = 0, wB = 0, best = 0, t = 128;
+    for (let i = 0; i < 256; i++) { wB += hist[i]; if (!wB) continue; const wF = n - wB; if (!wF) break; sB += i*hist[i]; const v = wB*wF*(sB/wB - (sum-sB)/wF)**2; if (v > best) { best = v; t = i; } }
+    const m = new Uint8Array(n); for (let i = 0; i < n; i++) m[i] = L[i] > t ? 1 : 0;
+    // behold kun det største sammenhængende område
+    const lab = new Int32Array(n), st = new Int32Array(n); let id = 0, bestId = 0, bestA = 0;
+    for (let i = 0; i < n; i++) { if (!m[i] || lab[i]) continue; id++; let sp = 0, a = 0; st[sp++] = i; lab[i] = id;
+      while (sp) { const p = st[--sp], x = p % w; a++; for (const j of [x > 0 ? p-1 : -1, x < w-1 ? p+1 : -1, p >= w ? p-w : -1, p < n-w ? p+w : -1]) if (j >= 0 && m[j] && !lab[j]) { lab[j] = id; st[sp++] = j; } }
+      if (a > bestA) { bestA = a; bestId = id; } }
+    for (let i = 0; i < n; i++) m[i] = lab[i] === bestId ? 1 : 0;
+    const r = quadFromMask(m); if (r) { r.fill *= .97; cand.push(r); } }
+  // Vælg den største firkant, der stadig er pænt fyldt ud (et delvist fundet ark er mindre)
+  const bestFill = Math.max(0, ...cand.map(c => c.fill));
+  for (const c of cand) c.score = c.fill >= Math.max(.86, bestFill - .07) ? .6 + c.area + .2 * Math.min(1, c.edge) : 0;
+  cand.sort((a, b) => b.score - a.score);
+  if (!cand.length || cand[0].score < .6) return null;
+  // Finjustér hver side, så den ligger på den kraftigste kant tæt ved
+  let q = cand[0].q.map(p => p.slice());
+  const lines = [];
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i+1)%4], L0 = Math.hypot(b[0]-a[0], b[1]-a[1]) || 1, nx = -(b[1]-a[1]) / L0, ny = (b[0]-a[0]) / L0;
+    let best = [a, b], bs = lineGrad(a, b);
+    for (let ta = -3; ta <= 3; ta++) for (let tb = -3; tb <= 3; tb++) {
+      const A2 = [a[0] + nx*ta, a[1] + ny*ta], B2 = [b[0] + nx*tb, b[1] + ny*tb], sc = lineGrad(A2, B2);
+      if (sc > bs * 1.6) { bs = sc; best = [A2, B2]; }
+    }
+    lines.push(best);
+  }
+  const inter = (l1, l2) => {
+    const [p, p2] = l1, [r, r2] = l2, d1 = [p2[0]-p[0], p2[1]-p[1]], d2 = [r2[0]-r[0], r2[1]-r[1]], den = d1[0]*d2[1] - d1[1]*d2[0];
+    if (Math.abs(den) < 1e-6) return null; const t = ((r[0]-p[0])*d2[1] - (r[1]-p[1])*d2[0]) / den; return [p[0] + d1[0]*t, p[1] + d1[1]*t];
+  };
+  const rq = [0, 1, 2, 3].map(i => inter(lines[(i+3)%4], lines[i]));
+  if (rq.every((p, i) => p && Math.hypot(p[0]-q[i][0], p[1]-q[i][1]) < 14)) q = rq;
+  return q.map(([x, y]) => [Math.min(1, Math.max(0, x / w)), Math.min(1, Math.max(0, y / h))]);
+}
+const FULL = () => [[.02, .02], [.98, .02], [.98, .98], [.02, .98]];
+
+/* Ret siden op: perspektiv fra hjørnerne til et rektangel */
+function warp(src, quad, rot){
+  const W0 = src.width, H0 = src.height, q = quad.map(([x, y]) => [x * W0, y * H0]);
+  let ow = Math.max(dist(q[0], q[1]), dist(q[3], q[2])), oh = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
+  const cap = 2200 / Math.max(ow, oh); if (cap < 1) { ow *= cap; oh *= cap; }
+  ow = Math.max(16, Math.round(ow)); oh = Math.max(16, Math.round(oh));
+  const Hm = homography([[0, 0], [ow, 0], [ow, oh], [0, oh]], q);
+  const sctx = src.getContext('2d', {willReadFrequently: true}), sd = sctx.getImageData(0, 0, W0, H0).data;
+  const out = new ImageData(ow, oh), od = out.data;
+  for (let y = 0; y < oh; y++) for (let x = 0; x < ow; x++) {
+    const z = Hm[6]*(x+.5) + Hm[7]*(y+.5) + Hm[8], u = (Hm[0]*(x+.5) + Hm[1]*(y+.5) + Hm[2]) / z - .5, v = (Hm[3]*(x+.5) + Hm[4]*(y+.5) + Hm[5]) / z - .5;
+    const xi = Math.max(0, Math.min(W0 - 2, u | 0)), yi = Math.max(0, Math.min(H0 - 2, v | 0)), fx = Math.min(1, Math.max(0, u - xi)), fy = Math.min(1, Math.max(0, v - yi));
+    const i = (yi*W0 + xi) * 4, o = (y*ow + x) * 4, a = (1-fx)*(1-fy), b = fx*(1-fy), c = (1-fx)*fy, e = fx*fy;
+    for (let ch = 0; ch < 3; ch++) od[o+ch] = sd[i+ch]*a + sd[i+4+ch]*b + sd[i+W0*4+ch]*c + sd[i+W0*4+4+ch]*e;
+    od[o+3] = 255;
+  }
+  let c = document.createElement('canvas'); c.width = ow; c.height = oh; c.getContext('2d').putImageData(out, 0, 0);
+  rot = ((rot % 4) + 4) % 4;
+  if (rot) {
+    const r = document.createElement('canvas'); r.width = rot % 2 ? oh : ow; r.height = rot % 2 ? ow : oh;
+    const x = r.getContext('2d'); x.translate(r.width / 2, r.height / 2); x.rotate(rot * Math.PI / 2); x.drawImage(c, -ow / 2, -oh / 2); c = r;
+  }
+  return c;
+}
+/* Filtre: fjern skygger ved at dividere med en udglattet baggrund */
+function applyFilter(c, f){
+  if (f === 'orig') return c;
+  const w = c.width, h = c.height, ctx = c.getContext('2d', {willReadFrequently: true}), img = ctx.getImageData(0, 0, w, h), d = img.data;
+  const sw = Math.max(4, Math.round(w / 10)), sh = Math.max(4, Math.round(h / 10));
+  const s = document.createElement('canvas'); s.width = sw; s.height = sh; const sx = s.getContext('2d', {willReadFrequently: true}); sx.drawImage(c, 0, 0, sw, sh);
+  const sdat = sx.getImageData(0, 0, sw, sh).data, bg = [0, 1, 2].map(() => new Float32Array(sw*sh));
+  for (let ch = 0; ch < 3; ch++) {
+    // maks-filter fjerner tekst, så kun papirets farve og skygger er tilbage
+    const a = new Float32Array(sw*sh); for (let i = 0; i < sw*sh; i++) a[i] = sdat[i*4+ch];
+    const m = new Float32Array(sw*sh), r = 2;
+    for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) { let mx = 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const xx = Math.min(sw-1, Math.max(0, x+dx)), yy = Math.min(sh-1, Math.max(0, y+dy)); const v = a[yy*sw+xx]; if (v > mx) mx = v; } m[y*sw+x] = mx; }
+    bg[ch] = blurA(m, sw, sh, 3);
+  }
+  for (let y = 0; y < h; y++) {
+    const fy = Math.min(sh - 1.001, Math.max(0, (y + .5) * sh / h - .5)), y0 = fy | 0, ty = fy - y0;
+    for (let x = 0; x < w; x++) {
+      const fx = Math.min(sw - 1.001, Math.max(0, (x + .5) * sw / w - .5)), x0 = fx | 0, tx = fx - x0, i = (y*w + x) * 4, j = y0*sw + x0;
+      const v = [0, 0, 0];
+      for (let ch = 0; ch < 3; ch++) {
+        const B = bg[ch], b = B[j]*(1-tx)*(1-ty) + B[j+1]*tx*(1-ty) + B[j+sw]*(1-tx)*ty + B[j+sw+1]*tx*ty;
+        let u = d[i+ch] / Math.max(30, b) * 255; u = (u - 30) * 255 / 215; v[ch] = u;
+      }
+      if (f === 'enh') { for (let ch = 0; ch < 3; ch++) d[i+ch] = Math.max(0, Math.min(255, v[ch])); }
+      else {
+        let g = .3*v[0] + .59*v[1] + .11*v[2];
+        if (f === 'bw') g = g < 150 ? 0 : g > 205 ? 255 : (g - 150) * 255 / 55;
+        g = Math.max(0, Math.min(255, g)); d[i] = d[i+1] = d[i+2] = g;
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+async function render(pg){ return applyFilter(warp(pg.srcCanvas, pg.quad, pg.rot), pg.filter); }
+
+/* ---------- Tilstand ---------- */
+let pages = [], cur = null, editIdx = -1, view = 'corners', pdfSize = 'a4';
+async function toCanvas(blob){
+  const im = await SL.loadImage(blob), k = Math.min(1, 2600 / Math.max(im.naturalWidth, im.naturalHeight));
+  const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+  c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(im.src); return c;
+}
+async function persist(){
+  const rec = pages.map(p => ({id: p.id, src: p.src, quad: p.quad, rot: p.rot, filter: p.filter, out: p.out}));
+  await DB.set('pages', rec);
+}
+async function restore(){
+  const rec = await DB.get('pages');
+  if (Array.isArray(rec)) pages = rec.filter(p => p && p.src && p.out).map(p => Object.assign({}, p, {thumb: URL.createObjectURL(p.out)}));
+  renderPages();
+}
+
+/* ---------- Editor ---------- */
+const edCanvas = $('#edCanvas'), edWrap = $('#edWrap');
+let disp = {k: 1, w: 0, h: 0}, drag = -1, dragPt = null;
+function layoutEditor(){
+  const src = cur.srcCanvas, maxW = Math.min($('#edCard').clientWidth - 30, 720), maxH = window.innerHeight * .62;
+  const k = Math.min(maxW / src.width, maxH / src.height), dpr = window.devicePixelRatio || 1;
+  disp = {k, w: Math.round(src.width * k), h: Math.round(src.height * k), dpr};
+  edCanvas.width = Math.round(disp.w * dpr); edCanvas.height = Math.round(disp.h * dpr);
+  edCanvas.style.width = disp.w + 'px'; edCanvas.style.height = disp.h + 'px';
+  drawEditor();
+}
+function drawEditor(){
+  if (!cur) return;
+  const ctx = edCanvas.getContext('2d'), {w, h, dpr} = disp;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(cur.srcCanvas, 0, 0, w, h);
+  const P = cur.quad.map(([x, y]) => [x * w, y * h]);
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.beginPath(); ctx.rect(0, 0, w, h);
+  ctx.moveTo(P[0][0], P[0][1]); for (let i = 3; i >= 0; i--) ctx.lineTo(P[i][0], P[i][1]); ctx.closePath(); ctx.fill('evenodd');
+  ctx.strokeStyle = '#f0b43c'; ctx.lineWidth = 2; ctx.beginPath(); P.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.stroke();
+  P.forEach((p, i) => { ctx.beginPath(); ctx.arc(p[0], p[1], drag === i ? 15 : 12, 0, 7); ctx.fillStyle = drag === i ? 'rgba(240,180,60,.35)' : 'rgba(240,180,60,.2)'; ctx.fill(); ctx.lineWidth = 3; ctx.stroke(); });
+  // Lup, mens et hjørne trækkes
+  if (drag >= 0) {
+    const p = P[drag], R = 56, Z = 3, cx = p[0] < w / 2 ? w - R - 10 : R + 10, cy = R + 10;
+    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.clip();
+    const sx = cur.quad[drag][0] * cur.srcCanvas.width, sy = cur.quad[drag][1] * cur.srcCanvas.height, sr = R / (disp.k * Z);
+    ctx.drawImage(cur.srcCanvas, sx - sr, sy - sr, sr * 2, sr * 2, cx - R, cy - R, R * 2, R * 2);
+    ctx.strokeStyle = '#f0b43c'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
+    ctx.restore(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  }
+}
+edWrap.addEventListener('pointerdown', e => {
+  if (!cur) return;
+  const r = edCanvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  let best = -1, bd = 44;
+  cur.quad.forEach(([qx, qy], i) => { const d = Math.hypot(qx * disp.w - x, qy * disp.h - y); if (d < bd) { bd = d; best = i; } });
+  if (best < 0) return;
+  drag = best; dragPt = {x, y, q: cur.quad[best].slice()}; edWrap.setPointerCapture(e.pointerId); drawEditor();
+});
+edWrap.addEventListener('pointermove', e => {
+  if (drag < 0) return;
+  const r = edCanvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  cur.quad[drag] = [Math.min(1, Math.max(0, dragPt.q[0] + (x - dragPt.x) / disp.w)), Math.min(1, Math.max(0, dragPt.q[1] + (y - dragPt.y) / disp.h))];
+  drawEditor();
+});
+const endDrag = () => { if (drag >= 0) { drag = -1; drawEditor(); } };
+edWrap.addEventListener('pointerup', endDrag); edWrap.addEventListener('pointercancel', endDrag);
+
+let prevT = 0;
+async function updatePreview(){
+  clearTimeout(prevT);
+  prevT = setTimeout(async () => {
+    if (!cur || view !== 'result') return;
+    const c = await render(cur), p = $('#preview');
+    p.width = c.width; p.height = c.height; p.getContext('2d').drawImage(c, 0, 0);
+  }, 30);
+}
+function setView(v){
+  view = v; $('#vCorners').setAttribute('aria-pressed', v === 'corners'); $('#vResult').setAttribute('aria-pressed', v === 'result');
+  $('#cornerView').hidden = v !== 'corners'; $('#resultView').hidden = v !== 'result';
+  if (v === 'result') updatePreview(); else layoutEditor();
+}
+function setFilter(f){ cur.filter = f; for (const b of document.querySelectorAll('#filters button')) b.setAttribute('aria-pressed', b.dataset.f === f); updatePreview(); }
+async function openEditor(pg, idx){
+  cur = pg; editIdx = idx;
+  $('#edCard').hidden = false; $('#addCard').hidden = true;
+  $('#edTitle').textContent = 'Side ' + (idx < 0 ? pages.length + 1 : idx + 1);
+  setFilter(pg.filter); setView(idx < 0 ? 'corners' : 'result');
+  $('#edCard').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+function closeEditor(){ cur = null; editIdx = -1; $('#edCard').hidden = true; $('#addCard').hidden = false; queueNext(); }
+
+/* Flere billeder på én gang: behandl dem efter hinanden */
+let queue = [];
+async function addFiles(files){
+  queue.push(...files); if (!cur) queueNext();
+}
+async function queueNext(){
+  const f = queue.shift(); if (!f) return;
+  try {
+    const srcCanvas = await toCanvas(f);
+    const quad = detectQuad(srcCanvas);
+    const pg = {id: 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), srcCanvas, src: await SL.canvasBlob(srcCanvas, 'image/jpeg', .9), quad: quad || FULL(), rot: 0, filter: (pages[pages.length-1] || {}).filter || 'enh'};
+    if (!quad) SL.toast('Kanterne blev ikke fundet. Træk hjørnerne på plads.', 3500);
+    openEditor(pg, -1);
+  } catch (e) { SL.toast('Billedet kunne ikke åbnes. Prøv et JPG- eller PNG-billede.'); queueNext(); }
+}
+$('#fCam').onchange = e => { const f = [...e.target.files]; e.target.value = ''; addFiles(f); };
+$('#fPick').onchange = e => { const f = [...e.target.files]; e.target.value = ''; addFiles(f); };
+$('#vCorners').onclick = () => setView('corners');
+$('#vResult').onclick = () => setView('result');
+for (const b of document.querySelectorAll('#filters button')) b.onclick = () => setFilter(b.dataset.f);
+$('#bRot').onclick = () => { cur.rot = (cur.rot + 1) % 4; if (view !== 'result') setView('result'); else updatePreview(); };
+$('#bAuto').onclick = () => { const q = detectQuad(cur.srcCanvas); if (q) { cur.quad = q; drawEditor(); } else SL.toast('Kanterne blev ikke fundet. Træk hjørnerne på plads.'); };
+$('#bFull').onclick = () => { cur.quad = [[0, 0], [1, 0], [1, 1], [0, 1]]; drawEditor(); };
+$('#bCancel').onclick = () => closeEditor();
+$('#bSave').onclick = async () => {
+  const b = $('#bSave'); b.disabled = true;
+  try {
+    const c = await render(cur);
+    cur.out = await SL.canvasBlob(c, 'image/jpeg', .88);
+    if (cur.thumb) URL.revokeObjectURL(cur.thumb);
+    cur.thumb = URL.createObjectURL(cur.out);
+    if (editIdx < 0) pages.push(cur); else pages[editIdx] = cur;
+    await persist(); renderPages(); closeEditor();
+  } finally { b.disabled = false; }
+};
+window.addEventListener('resize', () => { if (cur && view === 'corners') layoutEditor(); });
+
+/* ---------- Sider ---------- */
+const ICON = {
+  l: '<path d="M15 6l-6 6 6 6"/>', r: '<path d="M9 6l6 6-6 6"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>'
+};
+function renderPages(){
+  const box = $('#pages'); box.innerHTML = '';
+  pages.forEach((p, i) => {
+    const el = document.createElement('div'); el.className = 'page';
+    el.innerHTML = `<span class="n">${i + 1}</span><img alt="Side ${i + 1}" src="${p.thumb}"><div class="row">
+      <button class="ib" data-a="l" aria-label="Flyt til venstre" ${i ? '' : 'disabled'}><svg viewBox="0 0 24 24">${ICON.l}</svg></button>
+      <button class="ib" data-a="r" aria-label="Flyt til højre" ${i < pages.length - 1 ? '' : 'disabled'}><svg viewBox="0 0 24 24">${ICON.r}</svg></button>
+      <button class="ib" data-a="x" aria-label="Slet side"><svg viewBox="0 0 24 24">${ICON.x}</svg></button></div>`;
+    el.querySelector('img').onclick = async () => { if (!p.srcCanvas) p.srcCanvas = await toCanvas(p.src); openEditor(p, i); };
+    el.querySelector('[data-a="l"]').onclick = () => { [pages[i-1], pages[i]] = [pages[i], pages[i-1]]; persist(); renderPages(); };
+    el.querySelector('[data-a="r"]').onclick = () => { [pages[i+1], pages[i]] = [pages[i], pages[i+1]]; persist(); renderPages(); };
+    el.querySelector('[data-a="x"]').onclick = e => {
+      const b = e.currentTarget;
+      if (b.dataset.armed) { URL.revokeObjectURL(p.thumb); pages.splice(i, 1); persist(); renderPages(); return; }
+      b.dataset.armed = '1'; b.style.background = 'var(--bad)'; b.setAttribute('aria-label', 'Tryk igen for at slette');
+      setTimeout(() => { delete b.dataset.armed; b.style.background = ''; }, 2500);
+    };
+    box.appendChild(el);
+  });
+  const has = pages.length > 0;
+  $('#pagesCard').hidden = $('#expCard').hidden = !has; $('#bNew').hidden = !has;
+  $('#pCount').textContent = has ? `${pages.length} ${pages.length === 1 ? 'side' : 'sider'}` : '';
+  $('#addHint').textContent = has ? 'Tilføj flere sider med Tag billede eller Vælg billeder.' : 'Læg papiret på et mørkere underlag med hele arket i billedet. Scanneren finder selv kanterne og retter siden op. Telefonens eget kamera stiller skarpt, så tag gerne billedet i godt lys.';
+  if (!$('#fname').value) $('#fname').value = 'Scanning ' + SL.stamp();
+}
+$('#bNew').onclick = e => {
+  const b = e.currentTarget;
+  if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tryk igen for at rydde'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Ny scanning'; }, 2500); return; }
+  delete b.dataset.armed; b.textContent = 'Ny scanning';
+  pages.forEach(p => URL.revokeObjectURL(p.thumb)); pages = []; $('#fname').value = ''; persist(); renderPages(); closeEditor();
+};
+
+/* ---------- Gem ---------- */
+const fileBase = () => ($('#fname').value.trim() || 'Scanning').replace(/[\\/:*?"<>|]+/g, '-');
+async function buildPDF(){
+  const list = [];
+  for (const p of pages) {
+    const im = await SL.loadImage(p.out);
+    list.push({jpeg: new Uint8Array(await p.out.arrayBuffer()), w: im.naturalWidth, h: im.naturalHeight}); URL.revokeObjectURL(im.src);
+  }
+  return SL.makePDF(list, pdfSize);
+}
+$('#szA4').onclick = () => { pdfSize = 'a4'; $('#szA4').setAttribute('aria-pressed', true); $('#szFit').setAttribute('aria-pressed', false); };
+$('#szFit').onclick = () => { pdfSize = 'fit'; $('#szA4').setAttribute('aria-pressed', false); $('#szFit').setAttribute('aria-pressed', true); };
+$('#bPdf').onclick = async () => { SL.saveFile(await buildPDF(), fileBase() + '.pdf'); SL.toast('PDF gemt'); };
+if (SL.canShareFiles()) $('#bSharePdf').hidden = false;
+$('#bSharePdf').onclick = async () => { const b = await buildPDF(); if (!await SL.shareFiles([new File([b], fileBase() + '.pdf', {type: 'application/pdf'})])) SL.saveFile(b, fileBase() + '.pdf'); };
+$('#bJpg').onclick = async () => {
+  const files = pages.map((p, i) => new File([p.out], `${fileBase()} ${i + 1}.jpg`, {type: 'image/jpeg'}));
+  if (files.length > 1 && SL.canShareFiles() && await SL.shareFiles(files)) return;
+  files.forEach((f, i) => setTimeout(() => SL.saveFile(f, f.name), i * 400));
+};
+$('#bSporlys').onclick = async () => {
+  let ok = 0; for (const [i, p] of pages.entries()) if (await SL.sendToSporlys(p.out, `${fileBase()} ${i + 1}`)) ok++;
+  SL.toast(ok ? `${ok} ${ok === 1 ? 'side' : 'sider'} ligger nu under Mine billeder i Sporlys.` : 'Siderne kunne ikke gemmes i Sporlys.');
+};
+
+restore();
+window.SLscan = {detectQuad};
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Filer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/menu.css">
+<style>
+.item img{width:40px;height:40px;object-fit:cover;border-radius:6px;background:#fff;flex:none}
+.item .fi{width:40px;height:40px;border-radius:6px;background:var(--panel);display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--muted);flex:none;text-transform:uppercase}
+.sub{display:grid;gap:12px}
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="appbtn" data-appmenu aria-label="Skift værktøj"><i></i>Filer<span class="chev">▾</span></button>
+  <div class="spacer"></div>
+</header>
+
+<main>
+  <div class="seg" role="tablist" aria-label="Værktøj" id="tabs">
+    <button data-tab="zip" aria-pressed="true">Zip</button>
+    <button data-tab="img" aria-pressed="false">Billeder</button>
+    <button data-tab="pdf" aria-pressed="false">PDF</button>
+  </div>
+
+  <!-- ZIP -->
+  <section id="t-zip" class="sub">
+    <div class="card">
+      <h2>Pak en zip-fil ud</h2>
+      <label class="drop" for="zIn"><b>Vælg zip-fil</b><span class="hint">Se indholdet og gem de filer, du skal bruge.</span></label>
+      <input type="file" id="zIn" accept=".zip,application/zip,application/x-zip-compressed" hidden>
+      <div id="zOut" class="sub" hidden>
+        <div class="row" style="justify-content:space-between"><b id="zName"></b><button class="btn ghost" id="zAll">Gem alle</button></div>
+        <div class="list" id="zList"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Pak filer sammen</h2>
+      <label class="drop" for="pIn"><b>Vælg filer</b><span class="hint">Alle slags filer. Du kan vælge flere ad gangen.</span></label>
+      <input type="file" id="pIn" multiple hidden>
+      <div id="pOut" class="sub" hidden>
+        <div class="list" id="pList"></div>
+        <div class="field"><label class="label" for="pName">Navn på zip-filen</label><input type="text" id="pName"></div>
+        <div class="row"><button class="btn accent" id="pGo">Lav zip-fil</button><button class="btn ghost" id="pClear">Ryd</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BILLEDER -->
+  <section id="t-img" class="sub" hidden>
+    <div class="card">
+      <h2>Konvertér og formindsk billeder</h2>
+      <label class="drop" for="iIn"><b>Vælg billeder</b><span class="hint">Fx HEIC fra iPhone til JPG, eller store fotos, der skal sendes på mail.</span></label>
+      <input type="file" id="iIn" accept="image/*" multiple hidden>
+      <div class="field"><span class="label">Format</span>
+        <div class="seg" role="group" aria-label="Format" id="iFmt">
+          <button data-v="image/jpeg" aria-pressed="true">JPG</button>
+          <button data-v="image/png" aria-pressed="false">PNG</button>
+          <button data-v="image/webp" aria-pressed="false" id="webpBtn">WebP</button>
+        </div>
+      </div>
+      <div class="field"><span class="label">Største side</span>
+        <div class="seg" role="group" aria-label="Største side" id="iMax">
+          <button data-v="0" aria-pressed="false">Original</button>
+          <button data-v="3000" aria-pressed="false">3000 px</button>
+          <button data-v="2000" aria-pressed="true">2000 px</button>
+          <button data-v="1200" aria-pressed="false">1200 px</button>
+          <button data-v="800" aria-pressed="false">800 px</button>
+        </div>
+      </div>
+      <div class="field" id="iQField"><div class="t"><span>Kvalitet</span><output id="oQ">85 %</output></div><input type="range" id="iQ" min="40" max="100" value="85"></div>
+      <div id="iOut" class="sub" hidden>
+        <div class="list" id="iList"></div>
+        <div class="row"><button class="btn accent" id="iGo">Konvertér</button><button class="btn ghost" id="iAll" hidden>Gem alle</button><button class="btn ghost" id="iClear">Ryd</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PDF -->
+  <section id="t-pdf" class="sub" hidden>
+    <div class="card">
+      <h2>Billeder til PDF</h2>
+      <label class="drop" for="bIn"><b>Vælg billeder</b><span class="hint">Hvert billede bliver en side. Ret rækkefølgen bagefter.</span></label>
+      <input type="file" id="bIn" accept="image/*" multiple hidden>
+      <div id="bOut" class="sub" hidden>
+        <div class="list" id="bList"></div>
+        <div class="seg" role="group" aria-label="Sidestørrelse" id="bSize">
+          <button data-v="a4" aria-pressed="true">A4</button>
+          <button data-v="fit" aria-pressed="false">Som billedet</button>
+        </div>
+        <div class="row"><button class="btn accent" id="bGo">Lav PDF</button><button class="btn ghost" id="bClear">Ryd</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Saml PDF'er</h2>
+      <label class="drop" for="mIn"><b>Vælg PDF-filer</b><span class="hint">Lægges sammen i den rækkefølge, du vælger.</span></label>
+      <input type="file" id="mIn" accept="application/pdf,.pdf" multiple hidden>
+      <div id="mOut" class="sub" hidden>
+        <div class="list" id="mList"></div>
+        <div class="row"><button class="btn accent" id="mGo">Saml til én PDF</button><button class="btn ghost" id="mClear">Ryd</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Tag sider ud af en PDF</h2>
+      <label class="drop" for="sIn"><b>Vælg PDF</b><span class="hint">Gem udvalgte sider, drej siderne eller del hele filen op i enkelte sider.</span></label>
+      <input type="file" id="sIn" accept="application/pdf,.pdf" hidden>
+      <div id="sOut" class="sub" hidden>
+        <p id="sInfo" style="margin:0"></p>
+        <div class="field"><label class="label" for="sPages">Sider</label><input type="text" id="sPages" placeholder="fx 1-3, 5, 8"></div>
+        <div class="field"><span class="label">Drej siderne</span>
+          <div class="seg" role="group" aria-label="Drej" id="sRot">
+            <button data-v="0" aria-pressed="true">Ingen</button><button data-v="90" aria-pressed="false">90° højre</button><button data-v="180" aria-pressed="false">180°</button><button data-v="270" aria-pressed="false">90° venstre</button>
+          </div>
+        </div>
+        <div class="row"><button class="btn accent" id="sGo">Gem valgte sider</button><button class="btn ghost" id="sSplit">Del op i enkelte sider</button></div>
+      </div>
+    </div>
+  </section>
+  <p class="hint">Alt sker på din telefon. Filerne bliver ikke sendt nogen steder hen.</p>
+</main>
+
+<script src="assets/common.js"></script>
+<script>
+(() => {
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const loaded = {};
+function lib(name){
+  if (loaded[name]) return loaded[name];
+  return loaded[name] = new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = `assets/vendor/${name}.min.js`;
+    s.onload = () => res(name === 'jszip' ? window.JSZip : window.PDFLib); s.onerror = () => { delete loaded[name]; rej(new Error('Kunne ikke hente ' + name)); };
+    document.head.appendChild(s);
+  });
+}
+const ext = n => (n.match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();
+const MIME = {jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', json: 'application/json', html: 'text/html', svg: 'image/svg+xml', mp3: 'audio/mpeg', mp4: 'video/mp4', mov: 'video/quicktime', zip: 'application/zip', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'};
+const isImg = n => /^(jpe?g|png|gif|webp|svg)$/.test(ext(n));
+const ICON = {
+  save: '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 20h14"/>', share: '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 12v8h14v-8"/>',
+  up: '<path d="M6 15l6-6 6 6"/>', down: '<path d="M6 9l6 6 6-6"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>'
+};
+const ib = (k, label) => `<button class="ib" data-a="${k}" aria-label="${label}" title="${label}"><svg viewBox="0 0 24 24">${ICON[k]}</svg></button>`;
+async function deliver(blob, name){
+  SL.saveFile(blob, name);
+}
+async function deliverMany(files, zipName){
+  if (files.length === 1) return deliver(files[0], files[0].name);
+  if (SL.canShareFiles() && files.length <= 30 && await SL.shareFiles(files)) return;
+  const JSZip = await lib('jszip'), z = new JSZip(); for (const f of files) z.file(f.name, f);
+  deliver(await z.generateAsync({type: 'blob'}), zipName);
+}
+const uniq = (name, used) => { let n = name, i = 2; while (used.has(n)) { n = name.replace(/(\.[^.]*)?$/, m => ` (${i})` + m); i++; } used.add(n); return n; };
+
+/* Faner */
+$$('#tabs button').forEach(b => b.onclick = () => {
+  $$('#tabs button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  for (const t of ['zip', 'img', 'pdf']) $('#t-' + t).hidden = t !== b.dataset.tab;
+  try { localStorage.setItem('sporlys:filer:tab', b.dataset.tab); } catch (e) {}
+});
+try { const t = localStorage.getItem('sporlys:filer:tab'); if (t) $(`#tabs [data-tab="${t}"]`)?.click(); } catch (e) {}
+function segVal(id, cb){ $$(`#${id} button`).forEach(b => b.onclick = () => { $$(`#${id} button`).forEach(x => x.setAttribute('aria-pressed', x === b)); cb && cb(b.dataset.v); }); }
+const getSeg = id => $(`#${id} [aria-pressed="true"]`).dataset.v;
+// Træk og slip på felterne
+$$('.drop').forEach(d => {
+  const inp = document.getElementById(d.getAttribute('for'));
+  d.addEventListener('dragover', e => { e.preventDefault(); d.classList.add('over'); });
+  d.addEventListener('dragleave', () => d.classList.remove('over'));
+  d.addEventListener('drop', e => { e.preventDefault(); d.classList.remove('over'); inp._drop = [...e.dataTransfer.files]; inp.dispatchEvent(new Event('change')); });
+});
+const picked = e => { const f = e.target._drop || [...(e.target.files || [])]; e.target._drop = null; e.target.value = ''; return f; };
+
+/* Rækkefølge-liste med op/ned/fjern */
+function orderList(box, arr, render, onChange){
+  box.innerHTML = '';
+  arr.forEach((f, i) => {
+    const el = document.createElement('div'); el.className = 'item';
+    el.innerHTML = render(f, i) + ib('up', 'Flyt op') + ib('down', 'Flyt ned') + ib('x', 'Fjern');
+    el.querySelector('[data-a="up"]').disabled = !i; el.querySelector('[data-a="down"]').disabled = i === arr.length - 1;
+    el.querySelector('[data-a="up"]').onclick = () => { [arr[i-1], arr[i]] = [arr[i], arr[i-1]]; onChange(); };
+    el.querySelector('[data-a="down"]').onclick = () => { [arr[i+1], arr[i]] = [arr[i], arr[i+1]]; onChange(); };
+    el.querySelector('[data-a="x"]').onclick = () => { arr.splice(i, 1); onChange(); };
+    box.appendChild(el);
+  });
+}
+const fileRow = f => `${isImg(f.name) && f._url ? `<img alt="" src="${f._url}">` : `<span class="fi">${SL.esc(ext(f.name) || 'fil')}</span>`}<span class="name">${SL.esc(f.name)}</span><small>${SL.fmtBytes(f.size)}</small>`;
+const withUrl = files => files.map(f => { if (isImg(f.name) || /^image\//.test(f.type)) f._url = URL.createObjectURL(f); return f; });
+
+/* ---------- ZIP: pak ud ---------- */
+let zEntries = [];
+$('#zIn').onchange = async e => {
+  const [f] = picked(e); if (!f) return;
+  try {
+    const JSZip = await lib('jszip'), z = await JSZip.loadAsync(f);
+    zEntries = Object.values(z.files).filter(x => !x.dir && !/(^|\/)(__MACOSX\/|\.DS_Store$)/.test(x.name));
+    $('#zName').textContent = `${f.name} · ${zEntries.length} ${zEntries.length === 1 ? 'fil' : 'filer'}`;
+    const box = $('#zList'); box.innerHTML = '';
+    for (const en of zEntries) {
+      const el = document.createElement('div'); el.className = 'item';
+      const size = en._data && en._data.uncompressedSize;
+      el.innerHTML = `<span class="fi">${SL.esc(ext(en.name) || 'fil')}</span><span class="name" title="${SL.esc(en.name)}">${SL.esc(en.name)}</span>${size != null ? `<small>${SL.fmtBytes(size)}</small>` : ''}${SL.canShareFiles() ? ib('share', 'Del') : ''}${ib('save', 'Gem')}`;
+      const get = async () => new File([await en.async('blob')], en.name.split('/').pop(), {type: MIME[ext(en.name)] || 'application/octet-stream'});
+      el.querySelector('[data-a="save"]').onclick = async () => { const fl = await get(); deliver(fl, fl.name); };
+      const sh = el.querySelector('[data-a="share"]'); if (sh) sh.onclick = async () => { const fl = await get(); if (!await SL.shareFiles([fl])) deliver(fl, fl.name); };
+      if (isImg(en.name)) en.async('blob').then(b => { const im = document.createElement('img'); im.alt = ''; im.src = URL.createObjectURL(new Blob([b], {type: MIME[ext(en.name)]})); el.querySelector('.fi').replaceWith(im); });
+      box.appendChild(el);
+    }
+    $('#zOut').hidden = false;
+  } catch (er) { SL.toast(/encrypt|password/i.test(String(er)) ? 'Zip-filen er beskyttet med adgangskode. Den kan ikke åbnes her.' : 'Filen kunne ikke åbnes som zip.'); }
+};
+$('#zAll').onclick = async () => {
+  const used = new Set(), files = [];
+  for (const en of zEntries) files.push(new File([await en.async('blob')], uniq(en.name.split('/').pop(), used), {type: MIME[ext(en.name)] || 'application/octet-stream'}));
+  if (SL.canShareFiles() && await SL.shareFiles(files)) return;
+  files.forEach((f, i) => setTimeout(() => deliver(f, f.name), i * 350));
+};
+
+/* ---------- ZIP: pak sammen ---------- */
+let pFiles = [];
+const pRender = () => { orderList($('#pList'), pFiles, fileRow, pRender); $('#pOut').hidden = !pFiles.length; };
+$('#pIn').onchange = e => { pFiles.push(...withUrl(picked(e))); if (!$('#pName').value) $('#pName').value = 'Filer ' + SL.stamp(); pRender(); };
+$('#pClear').onclick = () => { pFiles = []; $('#pName').value = ''; pRender(); };
+$('#pGo').onclick = async () => {
+  const JSZip = await lib('jszip'), z = new JSZip(), used = new Set();
+  for (const f of pFiles) z.file(uniq(f.name, used), f);
+  const blob = await z.generateAsync({type: 'blob', compression: 'DEFLATE', compressionOptions: {level: 6}});
+  deliver(blob, ($('#pName').value.trim() || 'Filer') + '.zip'); SL.toast(`Zip-fil på ${SL.fmtBytes(blob.size)} gemt`);
+};
+
+/* ---------- BILLEDER ---------- */
+let iFiles = [], iResults = [];
+(() => { const c = document.createElement('canvas'); c.width = c.height = 1; if (!c.toDataURL('image/webp').startsWith('data:image/webp')) $('#webpBtn').hidden = true; })();
+segVal('iFmt', v => { $('#iQField').hidden = v === 'image/png'; iResults = []; iRender(); });
+segVal('iMax', () => { iResults = []; iRender(); });
+$('#iQ').oninput = e => { $('#oQ').textContent = e.target.value + ' %'; iResults = []; iRender(); };
+function iRender(){
+  orderList($('#iList'), iFiles, (f, i) => fileRow(f) + (iResults[i] ? `<small style="color:var(--ok)">→ ${SL.fmtBytes(iResults[i].size)}</small>` : ''), () => { iResults = []; iRender(); });
+  $('#iOut').hidden = !iFiles.length; $('#iAll').hidden = !iResults.length;
+}
+$('#iIn').onchange = e => { iFiles.push(...withUrl(picked(e))); iResults = []; iRender(); };
+$('#iClear').onclick = () => { iFiles = []; iResults = []; iRender(); };
+$('#iGo').onclick = async () => {
+  const type = getSeg('iFmt'), max = +getSeg('iMax'), q = +$('#iQ').value / 100, e2 = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}[type];
+  const b = $('#iGo'); b.disabled = true; iResults = []; let bad = 0;
+  for (const f of iFiles) {
+    try {
+      const im = await SL.loadImage(f), k = max ? Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight)) : 1;
+      const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+      const x = c.getContext('2d'); if (type === 'image/jpeg') { x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); }
+      x.imageSmoothingQuality = 'high'; x.drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(im.src);
+      const out = await SL.canvasBlob(c, type, q);
+      iResults.push(new File([out], f.name.replace(/\.[^.]+$/, '') + '.' + e2, {type}));
+    } catch (er) { bad++; iResults.push(null); }
+    iRender();
+  }
+  iResults = iResults.filter(Boolean); b.disabled = false; iRender();
+  SL.toast(bad ? `${bad} billede${bad > 1 ? 'r' : ''} kunne ikke læses.` : 'Færdig. Tryk Gem alle.');
+};
+$('#iAll').onclick = () => deliverMany(iResults, 'Billeder ' + SL.stamp() + '.zip');
+
+/* ---------- PDF: billeder til PDF ---------- */
+let bFiles = [];
+const bRender = () => { orderList($('#bList'), bFiles, fileRow, bRender); $('#bOut').hidden = !bFiles.length; };
+segVal('bSize');
+$('#bIn').onchange = e => { bFiles.push(...withUrl(picked(e))); bRender(); };
+$('#bClear').onclick = () => { bFiles = []; bRender(); };
+$('#bGo').onclick = async () => {
+  const pages = []; const b = $('#bGo'); b.disabled = true;
+  try {
+    for (const f of bFiles) {
+      const im = await SL.loadImage(f), k = Math.min(1, 2400 / Math.max(im.naturalWidth, im.naturalHeight));
+      const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+      const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(im.src);
+      const jpg = await SL.canvasBlob(c, 'image/jpeg', .88);
+      pages.push({jpeg: new Uint8Array(await jpg.arrayBuffer()), w: c.width, h: c.height});
+    }
+    deliver(SL.makePDF(pages, getSeg('bSize')), 'Billeder ' + SL.stamp() + '.pdf'); SL.toast('PDF gemt');
+  } catch (er) { SL.toast('Et af billederne kunne ikke læses.'); }
+  b.disabled = false;
+};
+
+/* ---------- PDF: saml ---------- */
+let mFiles = [];
+const mRender = () => { orderList($('#mList'), mFiles, fileRow, mRender); $('#mOut').hidden = !mFiles.length; };
+$('#mIn').onchange = e => { mFiles.push(...picked(e)); mRender(); };
+$('#mClear').onclick = () => { mFiles = []; mRender(); };
+$('#mGo').onclick = async () => {
+  const b = $('#mGo'); b.disabled = true;
+  try {
+    const {PDFDocument} = await lib('pdf-lib'), out = await PDFDocument.create();
+    for (const f of mFiles) {
+      const src = await PDFDocument.load(await f.arrayBuffer(), {ignoreEncryption: true});
+      (await out.copyPages(src, src.getPageIndices())).forEach(p => out.addPage(p));
+    }
+    deliver(new Blob([await out.save()], {type: 'application/pdf'}), 'Samlet ' + SL.stamp() + '.pdf'); SL.toast(`PDF med ${out.getPageCount()} sider gemt`);
+  } catch (er) { SL.toast('En af filerne kunne ikke læses som PDF.'); }
+  b.disabled = false;
+};
+
+/* ---------- PDF: tag sider ud / drej / del op ---------- */
+let sFile = null, sCount = 0;
+segVal('sRot');
+$('#sIn').onchange = async e => {
+  const [f] = picked(e); if (!f) return;
+  try {
+    const {PDFDocument} = await lib('pdf-lib'), d = await PDFDocument.load(await f.arrayBuffer(), {ignoreEncryption: true});
+    sFile = f; sCount = d.getPageCount();
+    $('#sInfo').textContent = `${f.name} · ${sCount} ${sCount === 1 ? 'side' : 'sider'}`; $('#sPages').value = `1-${sCount}`; $('#sOut').hidden = false;
+  } catch (er) { SL.toast('Filen kunne ikke læses som PDF.'); }
+};
+function parsePages(t){
+  const out = [];
+  for (const part of t.split(/[,;\s]+/).filter(Boolean)) {
+    const m = part.match(/^(\d+)(?:-(\d*))?$/); if (!m) return null;
+    let a = +m[1], b = m[2] === undefined ? a : m[2] === '' ? sCount : +m[2];
+    if (a < 1 || b > sCount || a > b) return null;
+    for (let i = a; i <= b; i++) out.push(i - 1);
+  }
+  return out.length ? out : null;
+}
+async function pick(idx){
+  const {PDFDocument, degrees} = await lib('pdf-lib'), src = await PDFDocument.load(await sFile.arrayBuffer(), {ignoreEncryption: true}), out = await PDFDocument.create();
+  const rot = +getSeg('sRot');
+  (await out.copyPages(src, idx)).forEach(p => { if (rot) p.setRotation(degrees((p.getRotation().angle + rot) % 360)); out.addPage(p); });
+  return new Blob([await out.save()], {type: 'application/pdf'});
+}
+const sBase = () => sFile.name.replace(/\.pdf$/i, '');
+$('#sGo').onclick = async () => {
+  const idx = parsePages($('#sPages').value); if (!idx) { SL.toast(`Skriv sidetal mellem 1 og ${sCount}, fx 1-3, 5`); return; }
+  deliver(await pick(idx), `${sBase()} (sider ${$('#sPages').value.replace(/\s+/g, '')}).pdf`);
+};
+$('#sSplit').onclick = async () => {
+  const files = []; for (let i = 0; i < sCount; i++) files.push(new File([await pick([i])], `${sBase()} side ${i + 1}.pdf`, {type: 'application/pdf'}));
+  const JSZip = await lib('jszip'), z = new JSZip(); for (const f of files) z.file(f.name, f);
+  deliver(await z.generateAsync({type: 'blob'}), `${sBase()} sider.zip`); SL.toast(`${sCount} sider lagt i en zip-fil`);
+};
+})();
+</script>
+</body>
+</html>

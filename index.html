@@ -1,6 +1,7 @@
 <!doctype html><html lang="da"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"></head><body><title>Sporlys</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="assets/menu.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
 <style>
 /* Layout: kamera/lysbord fylder hele skærmen; værktøj flyder ovenpå i top- og bundbjælke. Bevidst ét mørkt tema (kamera-app). */
@@ -29,7 +30,8 @@ button{font:inherit;color:inherit}
   padding-top:calc(env(safe-area-inset-top,0px) + 10px);padding-bottom:10px;
   padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));
   background:linear-gradient(#000a,#0000)}
-.brand{font:700 20px/1 var(--display);letter-spacing:-.01em;margin-right:4px;display:flex;align-items:center;gap:8px}
+.brand{font:700 20px/1 var(--display);letter-spacing:-.01em;margin-right:4px;display:flex;align-items:center;gap:8px;border:0;background:none;padding:6px 2px;cursor:pointer;color:var(--fg)}
+.brand em{font:700 13px var(--body);font-style:normal;color:var(--fg)}
 .brand i{width:10px;height:22px;border-radius:2px;background:var(--accent);transform:rotate(18deg);display:inline-block}
 @media (max-width:460px){.brand span{display:none}}
 .seg{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px}
@@ -111,7 +113,7 @@ select{font:inherit;color:var(--fg);background:#ffffff12;border:1px solid var(--
   </div>
 
   <header id="top">
-    <div class="brand"><i></i><span>Sporlys</span></div>
+    <button class="brand" data-appmenu aria-label="Skift værktøj"><i></i><span>Sporlys</span><em aria-hidden="true">▾</em></button>
     <div class="seg" role="group" aria-label="Tilstand">
       <button id="mCam" aria-pressed="false">Kamera</button>
       <button id="mLight" aria-pressed="true">Lysbord</button>
@@ -226,6 +228,7 @@ select{font:inherit;color:var(--fg);background:#ffffff12;border:1px solid var(--
   </div>
 </div>
 
+<script src="assets/common.js"></script>
 <script>
 (() => {
 const $ = s => document.querySelector(s);

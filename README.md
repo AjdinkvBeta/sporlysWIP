@@ -1,10 +1,16 @@
-# Sporlys
+# Sporlys og værktøjer
 
-Tegn efter en gennemsigtig skitse med telefonens kamera eller som lysbord.
+Små værktøjer, der kører helt på telefonen. Intet sendes til en server.
 
-Åbn appen: https://ajdinkvbeta.github.io/sporlyswip/
+Åbn: https://ajdinkvbeta.github.io/sporlyswip/
 
-- **Kamera**: stil telefonen fast over papiret og tegn efter skitsen på skærmen.
-- **Følg papiret**: læg hvidt papir på et mørkere bord, så følger skitsen arkets hjørner.
-- **Lysbord**: skru lysstyrken op, læg tyndt papir over skærmen og tegn efter.
-- **Trin-for-trin**: indbyggede motiver, eller lav en automatisk guide af dit eget foto.
+| Værktøj | Side | Hvad det gør |
+| --- | --- | --- |
+| Sporlys | `index.html` | Tegn efter en skitse med kameraet eller som lysbord. Skitsen fastgøres til papiret og følger med. |
+| Scanner | `scanner.html` | Tag billeder af dokumenter, ret dem op, fjern skygger og gem som PDF. |
+| Mønster | `moenster.html` | Lav perleplader (Hama Midi), korssting og pixel art ud fra et billede eller fra bunden. |
+| Filer | `filer.html` | Pak zip ud og sammen, konvertér og formindsk billeder, lav PDF af billeder, saml og del PDF'er. |
+
+Skift værktøj med menuen øverst til venstre.
+
+Biblioteker i `assets/vendor`: JSZip 3.10.1 (MIT) og pdf-lib 1.17.1 (MIT).

@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Mønster</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/menu.css">
+<style>
+.srcrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.srcrow img{width:84px;height:84px;object-fit:cover;border-radius:10px;background:var(--panel2)}
+#gridWrap{overflow:auto;max-height:64vh;border-radius:12px;background:#0b0c0f;border:1px solid var(--line);touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch}
+#grid{display:block;margin:0 auto;touch-action:none}
+#gridWrap.pan #grid{touch-action:auto}
+.legend{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+.lg{display:flex;gap:8px;align-items:center;background:var(--panel2);border:2px solid transparent;border-radius:10px;padding:6px 8px;cursor:pointer;text-align:left;min-width:0}
+.lg[aria-pressed="true"]{border-color:var(--accent)}
+.lg .sw{width:26px;height:26px;border-radius:6px;flex:none;display:grid;place-items:center;font-size:14px;font-weight:700;box-shadow:inset 0 0 0 1px #0004}
+.lg .tx{min-width:0;display:grid}
+.lg .tx b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lg .tx small{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.facts{display:flex;gap:16px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.facts div{display:grid}
+.facts b{font:700 20px var(--display)}
+.facts span{color:var(--muted);font-size:12px}
+.pal{display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:6px}
+.pal button{aspect-ratio:1;border-radius:8px;border:2px solid transparent;cursor:pointer;box-shadow:inset 0 0 0 1px #0004}
+.pal button[aria-pressed="true"]{border-color:var(--fg)}
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="appbtn" data-appmenu aria-label="Skift værktøj"><i></i>Mønster<span class="chev">▾</span></button>
+  <div class="spacer"></div>
+</header>
+
+<main>
+  <section class="card">
+    <div class="srcrow">
+      <img id="srcThumb" alt="" hidden>
+      <div class="row">
+        <label class="btn accent" for="fImg">Vælg billede</label>
+        <button class="btn ghost" id="bBlank">Tomt lærred</button>
+      </div>
+    </div>
+    <input type="file" id="fImg" accept="image/*" hidden>
+    <div class="field">
+      <span class="label">Hvad vil du lave?</span>
+      <div class="seg" role="group" aria-label="Type">
+        <button data-m="perler" aria-pressed="true">Perleplade</button>
+        <button data-m="kors" aria-pressed="false">Korssting</button>
+        <button data-m="pixel" aria-pressed="false">Pixel art</button>
+      </div>
+    </div>
+    <div class="field" id="boardField">
+      <span class="label">Størrelse</span>
+      <div class="seg" role="group" aria-label="Plader">
+        <button data-b="29" aria-pressed="true">1 plade (29×29)</button>
+        <button data-b="58" aria-pressed="false">4 plader (58×58)</button>
+        <button data-b="free" aria-pressed="false">Fri</button>
+      </div>
+    </div>
+    <div class="field" id="wField">
+      <div class="t"><span>Bredde</span><output id="oW">40</output></div>
+      <input type="range" id="rW" min="8" max="160" value="40">
+    </div>
+    <div class="field">
+      <div class="t"><span>Antal farver</span><output id="oN">12</output></div>
+      <input type="range" id="rN" min="2" max="30" value="12">
+    </div>
+    <div class="row">
+      <button class="chip" id="cDither" aria-pressed="false">Blød overgang (dithering)</button>
+      <button class="chip" id="cSquare" aria-pressed="true">Beskær kvadratisk</button>
+    </div>
+    <p class="hint" id="modeHint"></p>
+  </section>
+
+  <section class="card" id="patCard" hidden>
+    <div class="facts" id="facts"></div>
+    <div class="row">
+      <div class="seg" role="group" aria-label="Værktøj">
+        <button data-t="pan" aria-pressed="true">Flyt</button>
+        <button data-t="paint" aria-pressed="false">Mal</button>
+        <button data-t="fill" aria-pressed="false">Fyld</button>
+        <button data-t="erase" aria-pressed="false">Visk ud</button>
+      </div>
+      <button class="ib" id="bUndo" aria-label="Fortryd" title="Fortryd"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+    </div>
+    <div id="gridWrap" class="pan"><canvas id="grid"></canvas></div>
+    <div class="field">
+      <div class="t"><span>Zoom</span><output id="oZ"></output></div>
+      <input type="range" id="rZ" min="4" max="40" value="14">
+    </div>
+    <div class="field">
+      <span class="label">Farver i mønstret</span>
+      <div class="legend" id="legend"></div>
+      <details id="addPal">
+        <summary class="hint" style="cursor:pointer">Tilføj en farve</summary>
+        <div class="pal" id="pal" style="margin-top:8px"></div>
+        <input type="color" id="freeColor" value="#e04050" style="margin-top:8px">
+      </details>
+    </div>
+  </section>
+
+  <section class="card" id="expCard" hidden>
+    <h2>Gem mønstret</h2>
+    <div class="row">
+      <button class="btn accent" id="bChart">Gem som mønsterark</button>
+      <button class="btn ghost" id="bPixel">Gem som pixelbillede</button>
+      <button class="btn ghost" id="bSporlys">Tegn efter i Sporlys</button>
+    </div>
+    <p class="hint">Mønsterarket har gitter, symboler og en liste over farver med antal. Pixelbilledet er det rene billede, forstørret.</p>
+  </section>
+</main>
+
+<script src="assets/common.js"></script>
+<script>
+(() => {
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const DB = SL.store('sporlys-moenster');
+
+/* Hama Midi-perler. Farverne er omtrentlige; rigtige perler kan se en anelse anderledes ud. */
+const HAMA = [
+  ['H01','Hvid','#ecedec'],['H02','Creme','#f0e8b9'],['H03','Gul','#f0b901'],['H04','Orange','#e64f27'],['H05','Rød','#b63136'],
+  ['H06','Lyserød','#e1889f'],['H07','Lilla','#694a82'],['H08','Mørkeblå','#2c4690'],['H09','Blå','#305cb0'],['H10','Grøn','#256847'],
+  ['H11','Lysegrøn','#49ae89'],['H12','Brun','#534137'],['H17','Grå','#83888a'],['H18','Sort','#2e2f31'],['H20','Rødbrun','#7f332a'],
+  ['H21','Lysebrun','#a5693f'],['H22','Mørkerød','#a52d36'],['H26','Laks','#de9b90'],['H27','Beige','#deb48b'],['H28','Mørkegrøn','#363f38'],
+  ['H29','Hindbær','#b9395e'],['H30','Vinrød','#682e39'],['H31','Turkis','#6797ae'],['H43','Pastelgul','#f3e97b'],['H44','Pastelrød','#e9605f'],
+  ['H45','Pastellilla','#8b7db5'],['H46','Pastelblå','#64a9d6'],['H47','Pastelgrøn','#85c17c'],['H48','Pastelpink','#d86faf'],['H49','Azur','#3594c8'],
+  ['H60','Teddybrun','#a07d3b'],['H70','Lysegrå','#bfc1c1'],['H71','Mørkegrå','#4d5054'],['H75','Karamel','#b78445'],['H79','Fersken','#efa27a']
+].map(([code, name, hex]) => ({code, name, hex}));
+const SYMS = '■●▲◆★✚✖♥♦♣♠○□△◇☆✿❖✱#%&@=+?ZXSOHVTKN'.split('');
+
+/* ---------- Farvemath (Lab) ---------- */
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i+2), 16));
+const rgbHex = c => '#' + c.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+function lab([r, g, b]){
+  const f = v => { v /= 255; return v > .04045 ? ((v + .055) / 1.055) ** 2.4 : v / 12.92; };
+  const R = f(r), G = f(g), B = f(b);
+  let x = (R*.4124 + G*.3576 + B*.1805) / .95047, y = R*.2126 + G*.7152 + B*.0722, z = (R*.0193 + G*.1192 + B*.9505) / 1.08883;
+  const t = v => v > .008856 ? Math.cbrt(v) : 7.787*v + 16/116; x = t(x); y = t(y); z = t(z);
+  return [116*y - 16, 500*(x - y), 200*(y - z)];
+}
+const d2 = (a, b) => (a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2;
+const lum = hex => { const [r, g, b] = hexRgb(hex); return .3*r + .59*g + .11*b; };
+
+/* ---------- Tilstand ---------- */
+const S = {mode: 'perler', board: '29', w: 40, n: 12, dither: false, square: true, zoom: 14, tool: 'pan'};
+let img = null, srcBlob = null, P = null; // P = {w, h, cells: Int16Array (-1 = tom), pal: [{hex, name, code, sym}]}
+let cur = 0, undo = [];
+
+function hint(){
+  $('#modeHint').textContent = S.mode === 'perler' ? 'Farverne er Hama Midi-perler (omtrentlige farver). En perle er 5 mm, så en plade på 29×29 er cirka 14,5 cm.'
+    : S.mode === 'kors' ? 'Hvert felt er ét korssting. Mønsterarket viser symboler, så du kan tælle dig frem.'
+    : 'Lav en lille pixeltegning ud fra et billede, eller start på et tomt lærred og mal selv.';
+  $('#boardField').hidden = S.mode !== 'perler';
+  $('#wField').hidden = S.mode === 'perler' && S.board !== 'free';
+  $('#rW').max = S.mode === 'pixel' ? 128 : 160;
+}
+
+/* Billede -> gitter */
+function sample(w, h){
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  let sx = 0, sy = 0, sw = iw, sh = ih;
+  if (S.square) { const m = Math.min(iw, ih); sx = (iw - m) / 2; sy = (ih - m) / 2; sw = sh = m; }
+  // Skalér i trin for en pæn middelværdi
+  let c = document.createElement('canvas'), cw = sw, ch = sh, from = img, fx = sx, fy = sy;
+  while (cw / 2 > w * 2) { const n = document.createElement('canvas'); n.width = Math.round(cw / 2); n.height = Math.round(ch / 2); const x = n.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(from, fx, fy, cw, ch, 0, 0, n.width, n.height); from = n; fx = 0; fy = 0; cw = n.width; ch = n.height; }
+  c.width = w; c.height = h; const x = c.getContext('2d', {willReadFrequently: true}); x.imageSmoothingQuality = 'high'; x.drawImage(from, fx, fy, cw, ch, 0, 0, w, h);
+  return x.getImageData(0, 0, w, h).data;
+}
+function kmeans(pts, k){
+  // k-means++ i Lab
+  const n = pts.length, cent = [pts[Math.floor(n / 2)]], D = new Float64Array(n).fill(Infinity);
+  while (cent.length < k) {
+    let sum = 0; const c = cent[cent.length - 1];
+    for (let i = 0; i < n; i++) { const v = d2(pts[i], c); if (v < D[i]) D[i] = v; sum += D[i]; }
+    if (!sum) break; let r = Math.random() * sum, j = 0; for (; j < n - 1; j++) { r -= D[j]; if (r <= 0) break; } cent.push(pts[j]);
+  }
+  const as = new Int32Array(n);
+  for (let it = 0; it < 12; it++) {
+    const acc = cent.map(() => [0, 0, 0, 0]);
+    for (let i = 0; i < n; i++) { let b = 0, bd = Infinity; for (let j = 0; j < cent.length; j++) { const v = d2(pts[i], cent[j]); if (v < bd) { bd = v; b = j; } } as[i] = b; const a = acc[b]; a[0] += pts[i][0]; a[1] += pts[i][1]; a[2] += pts[i][2]; a[3]++; }
+    for (let j = 0; j < cent.length; j++) if (acc[j][3]) cent[j] = [acc[j][0] / acc[j][3], acc[j][1] / acc[j][3], acc[j][2] / acc[j][3]];
+  }
+  return cent;
+}
+// Lab -> RGB (til frie farver)
+function labRgb([L, a, b]){
+  let y = (L + 16) / 116, x = a / 500 + y, z = y - b / 200;
+  const f = t => t ** 3 > .008856 ? t ** 3 : (t - 16/116) / 7.787;
+  x = f(x) * .95047; y = f(y); z = f(z) * 1.08883;
+  let R = x*3.2406 + y*-1.5372 + z*-.4986, G = x*-.9689 + y*1.8758 + z*.0415, B = x*.0557 + y*-.204 + z*1.057;
+  const g = v => 255 * (v > .0031308 ? 1.055 * v ** (1/2.4) - .055 : 12.92 * v);
+  return [g(R), g(G), g(B)];
+}
+function build(){
+  if (!img) return;
+  let w, h;
+  const ar = S.square ? 1 : img.naturalHeight / img.naturalWidth;
+  if (S.mode === 'perler' && S.board !== 'free') { w = +S.board; h = S.square ? w : Math.max(1, Math.round(w * ar)); }
+  else { w = S.w; h = Math.max(1, Math.round(w * ar)); }
+  const d = sample(w, h), n = w*h, px = [], alpha = new Uint8Array(n);
+  for (let i = 0; i < n; i++) { alpha[i] = d[i*4+3] > 127 ? 1 : 0; px.push([d[i*4], d[i*4+1], d[i*4+2]]); }
+  const L = px.map(lab), vis = L.filter((_, i) => alpha[i]);
+  let pal;
+  if (S.mode === 'perler') {
+    // Brug de N Hama-farver, der passer bedst
+    const HL = HAMA.map(c => lab(hexRgb(c.hex))), cnt = new Float64Array(HAMA.length);
+    for (const p of vis) { let b = 0, bd = Infinity; HL.forEach((q, j) => { const v = d2(p, q); if (v < bd) { bd = v; b = j; } }); cnt[b]++; }
+    let keep = [...cnt.keys()].filter(j => cnt[j] > 0).sort((a, b) => cnt[b] - cnt[a]);
+    if (keep.length > S.n) {
+      // Behold de mest brugte, men sørg for at farver, der ligner hinanden, ikke fylder hele listen
+      const cents = kmeans(vis.length > 6000 ? vis.filter((_, i) => i % Math.ceil(vis.length / 6000) === 0) : vis, S.n);
+      const set = new Set(); for (const c of cents) { let b = 0, bd = Infinity; HL.forEach((q, j) => { const v = d2(c, q); if (v < bd) { bd = v; b = j; } }); set.add(b); }
+      for (const j of keep) { if (set.size >= S.n) break; set.add(j); }
+      keep = [...set];
+    }
+    pal = keep.map(j => Object.assign({}, HAMA[j]));
+  } else {
+    const sub = vis.length > 8000 ? vis.filter((_, i) => i % Math.ceil(vis.length / 8000) === 0) : vis;
+    pal = kmeans(sub.length ? sub : [[100, 0, 0]], Math.min(S.n, Math.max(1, sub.length))).map((c, i) => ({hex: rgbHex(labRgb(c)), name: 'Farve ' + (i + 1), code: ''}));
+  }
+  const PL = pal.map(c => lab(hexRgb(c.hex))), cells = new Int16Array(n).fill(-1);
+  const nearest = p => { let b = 0, bd = Infinity; for (let j = 0; j < PL.length; j++) { const v = d2(p, PL[j]); if (v < bd) { bd = v; b = j; } } return b; };
+  if (S.dither) {
+    const E = L.map(p => p.slice());
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y*w + x; if (!alpha[i]) continue;
+      const j = nearest(E[i]); cells[i] = j; const e = [0, 1, 2].map(k => E[i][k] - PL[j][k]);
+      const spread = (xx, yy, f) => { if (xx < 0 || yy >= h || xx >= w) return; const q = yy*w + xx; for (let k = 0; k < 3; k++) E[q][k] += e[k] * f * .8; };
+      spread(x+1, y, 7/16); spread(x-1, y+1, 3/16); spread(x, y+1, 5/16); spread(x+1, y+1, 1/16);
+    }
+  } else for (let i = 0; i < n; i++) if (alpha[i]) cells[i] = nearest(L[i]);
+  P = {w, h, cells, pal}; tidy(); undo = []; cur = 0; draw(); save();
+}
+// Fjern ubrugte farver, sortér efter antal og giv symboler
+function tidy(){
+  const cnt = new Array(P.pal.length).fill(0); for (const c of P.cells) if (c >= 0) cnt[c]++;
+  const order = [...cnt.keys()].filter(j => cnt[j] > 0 || P.pal[j].keep).sort((a, b) => cnt[b] - cnt[a]), map = new Int16Array(P.pal.length).fill(-1);
+  order.forEach((j, k) => { map[j] = k; });
+  P.pal = order.map((j, k) => Object.assign(P.pal[j], {sym: SYMS[k % SYMS.length], count: cnt[j]}));
+  for (let i = 0; i < P.cells.length; i++) if (P.cells[i] >= 0) P.cells[i] = map[P.cells[i]];
+  if (cur >= P.pal.length) cur = 0;
+}
+
+/* ---------- Tegning af gitteret ---------- */
+function paintChart(ctx, cs, ox, oy, opts){
+  const {w, h, cells, pal} = P, bead = S.mode === 'perler', kors = S.mode === 'kors';
+  ctx.fillStyle = bead ? '#f3f1ec' : kors ? '#fbfaf6' : '#e9e9ec'; ctx.fillRect(ox, oy, w*cs, h*cs);
+  if (!bead && !kors) { // ternet baggrund som "gennemsigtig"
+    ctx.fillStyle = '#d6d6db'; for (let y = 0; y < h; y++) for (let x = (y % 2); x < w; x += 2) ctx.fillRect(ox + x*cs, oy + y*cs, cs, cs);
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const c = cells[y*w + x], X = ox + x*cs, Y = oy + y*cs;
+    if (c < 0) { if (bead && cs >= 8) { ctx.fillStyle = '#d9d6cf'; ctx.beginPath(); ctx.arc(X + cs/2, Y + cs/2, cs*.12, 0, 7); ctx.fill(); } continue; }
+    const col = pal[c].hex;
+    if (bead && cs >= 8) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X + cs/2, Y + cs/2, cs*.46, 0, 7); ctx.arc(X + cs/2, Y + cs/2, cs*.17, 0, 7, true); ctx.fill('evenodd'); }
+    else { ctx.fillStyle = col; ctx.fillRect(X, Y, cs, cs); }
+    if (kors && cs >= 11 && opts.sym !== false) { ctx.fillStyle = lum(col) > 140 ? '#111' : '#fff'; ctx.font = `700 ${Math.round(cs*.62)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(pal[c].sym, X + cs/2, Y + cs/2 + 1); }
+  }
+  if (cs >= 6 && opts.grid !== false) {
+    ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 0; x <= w; x++) { ctx.moveTo(ox + x*cs + .5, oy); ctx.lineTo(ox + x*cs + .5, oy + h*cs); }
+    for (let y = 0; y <= h; y++) { ctx.moveTo(ox, oy + y*cs + .5); ctx.lineTo(ox + w*cs, oy + y*cs + .5); }
+    ctx.stroke();
+    const major = bead ? 29 : 10;
+    ctx.strokeStyle = bead ? 'rgba(200,60,40,.8)' : 'rgba(0,0,0,.55)'; ctx.lineWidth = 2; ctx.beginPath();
+    for (let x = 0; x <= w; x += major) { ctx.moveTo(ox + x*cs, oy); ctx.lineTo(ox + x*cs, oy + h*cs); }
+    for (let y = 0; y <= h; y += major) { ctx.moveTo(ox, oy + y*cs); ctx.lineTo(ox + w*cs, oy + y*cs); }
+    ctx.stroke();
+  }
+}
+const grid = $('#grid');
+function draw(){
+  if (!P) return;
+  $('#patCard').hidden = $('#expCard').hidden = false;
+  const cs = S.zoom, dpr = window.devicePixelRatio || 1;
+  grid.width = P.w * cs * dpr; grid.height = P.h * cs * dpr; grid.style.width = P.w * cs + 'px'; grid.style.height = P.h * cs + 'px';
+  const ctx = grid.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); paintChart(ctx, cs, 0, 0, {});
+  $('#oZ').textContent = cs + ' px';
+  renderLegend(); renderFacts();
+}
+function renderFacts(){
+  const total = P.cells.reduce((a, c) => a + (c >= 0), 0), f = [];
+  f.push([`${P.w} × ${P.h}`, S.mode === 'perler' ? 'perler' : S.mode === 'kors' ? 'sting' : 'pixels']);
+  f.push([P.pal.length, 'farver']);
+  if (S.mode === 'perler') { f.push([total, 'perler i alt']); f.push([Math.ceil(P.w / 29) * Math.ceil(P.h / 29), 'plader']); f.push([`${(P.w * .5).toFixed(1).replace('.', ',')} × ${(P.h * .5).toFixed(1).replace('.', ',')} cm`, 'færdig størrelse']); }
+  if (S.mode === 'kors') { f.push([total, 'sting']); f.push([`${(P.w / 5.5).toFixed(1).replace('.', ',')} × ${(P.h / 5.5).toFixed(1).replace('.', ',')} cm`, 'på Aida 14']); }
+  $('#facts').innerHTML = f.map(([b, s]) => `<div><b>${SL.esc(b)}</b><span>${s}</span></div>`).join('');
+}
+function renderLegend(){
+  const box = $('#legend'); box.innerHTML = '';
+  P.pal.forEach((c, i) => {
+    const b = document.createElement('button'); b.className = 'lg'; b.setAttribute('aria-pressed', i === cur);
+    const sym = S.mode === 'kors' ? `<span style="color:${lum(c.hex) > 140 ? '#111' : '#fff'}">${c.sym}</span>` : '';
+    b.innerHTML = `<span class="sw" style="background:${c.hex}">${sym}</span><span class="tx"><b>${SL.esc(c.code ? c.code + ' ' + c.name : c.name)}</b><small>${c.count || 0} stk.</small></span>`;
+    b.onclick = () => { cur = i; if (S.tool === 'pan' || S.tool === 'erase') setTool('paint'); renderLegend(); };
+    box.appendChild(b);
+  });
+}
+function renderPalette(){
+  const box = $('#pal'); box.innerHTML = ''; $('#freeColor').hidden = S.mode === 'perler'; box.hidden = S.mode !== 'perler';
+  for (const c of HAMA) {
+    const b = document.createElement('button'); b.style.background = c.hex; b.title = `${c.code} ${c.name}`; b.setAttribute('aria-label', `${c.code} ${c.name}`);
+    b.onclick = () => addColor(Object.assign({}, c));
+    box.appendChild(b);
+  }
+}
+function addColor(c){
+  if (!P) return;
+  let i = P.pal.findIndex(p => p.hex === c.hex);
+  if (i < 0) { c.keep = true; c.count = 0; c.sym = SYMS[P.pal.length % SYMS.length]; P.pal.push(c); i = P.pal.length - 1; }
+  cur = i; setTool('paint'); renderLegend();
+}
+$('#freeColor').onchange = e => addColor({hex: e.target.value, name: 'Egen farve', code: ''});
+
+/* ---------- Mal på gitteret ---------- */
+function setTool(t){ S.tool = t; $$('[data-t]').forEach(b => b.setAttribute('aria-pressed', b.dataset.t === t)); $('#gridWrap').classList.toggle('pan', t === 'pan'); }
+$$('[data-t]').forEach(b => b.onclick = () => setTool(b.dataset.t));
+function cellAt(e){ const r = grid.getBoundingClientRect(), x = Math.floor((e.clientX - r.left) / S.zoom), y = Math.floor((e.clientY - r.top) / S.zoom); return x >= 0 && y >= 0 && x < P.w && y < P.h ? y*P.w + x : -1; }
+function pushUndo(){ undo.push(Int16Array.from(P.cells)); if (undo.length > 40) undo.shift(); }
+function setCell(i, v){
+  if (i < 0 || P.cells[i] === v) return;
+  P.cells[i] = v; const x = i % P.w, y = (i / P.w) | 0, cs = S.zoom, dpr = window.devicePixelRatio || 1, ctx = grid.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.save(); ctx.beginPath(); ctx.rect(x*cs, y*cs, cs, cs); ctx.clip(); paintChart(ctx, cs, 0, 0, {}); ctx.restore();
+}
+function flood(i, v){
+  const t = P.cells[i]; if (t === v) return; const st = [i];
+  while (st.length) { const p = st.pop(); if (P.cells[p] !== t) continue; P.cells[p] = v; const x = p % P.w; if (x > 0) st.push(p-1); if (x < P.w-1) st.push(p+1); if (p >= P.w) st.push(p-P.w); if (p < P.cells.length - P.w) st.push(p+P.w); }
+}
+let painting = false;
+grid.addEventListener('pointerdown', e => {
+  if (!P || S.tool === 'pan') return;
+  const i = cellAt(e); if (i < 0) return;
+  e.preventDefault(); pushUndo();
+  if (S.tool === 'fill') { flood(i, cur); finish(); return; }
+  painting = true; grid.setPointerCapture(e.pointerId); setCell(i, S.tool === 'erase' ? -1 : cur);
+});
+grid.addEventListener('pointermove', e => { if (painting) setCell(cellAt(e), S.tool === 'erase' ? -1 : cur); });
+const stop = () => { if (painting) { painting = false; finish(); } };
+grid.addEventListener('pointerup', stop); grid.addEventListener('pointercancel', stop);
+function finish(){ const keepCur = P.pal[cur]; tidy(); const k = P.pal.indexOf(keepCur); if (k >= 0) cur = k; draw(); save(); }
+$('#bUndo').onclick = () => { const u = undo.pop(); if (u && P && u.length === P.cells.length) { P.cells = u; finish(); } };
+
+/* ---------- Gem / hent ---------- */
+let saveT = 0;
+function save(){ clearTimeout(saveT); saveT = setTimeout(() => DB.set('project', {S: Object.assign({}, S), P: P && {w: P.w, h: P.h, cells: Array.from(P.cells), pal: P.pal}, srcBlob}), 400); }
+async function restore(){
+  const r = await DB.get('project'); if (!r) { hint(); renderPalette(); return; }
+  Object.assign(S, r.S || {}, {tool: 'pan'});
+  if (r.srcBlob) { srcBlob = r.srcBlob; try { img = await SL.loadImage(srcBlob); $('#srcThumb').src = img.src; $('#srcThumb').hidden = false; } catch (e) {} }
+  if (r.P) P = {w: r.P.w, h: r.P.h, cells: Int16Array.from(r.P.cells), pal: r.P.pal};
+  syncUI(); if (P) draw();
+}
+function syncUI(){
+  $$('[data-m]').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === S.mode));
+  $$('[data-b]').forEach(b => b.setAttribute('aria-pressed', b.dataset.b === S.board));
+  $('#rW').value = S.w; $('#oW').textContent = S.w; $('#rN').value = S.n; $('#oN').textContent = S.n; $('#rZ').value = S.zoom;
+  $('#cDither').setAttribute('aria-pressed', S.dither); $('#cSquare').setAttribute('aria-pressed', S.square);
+  setTool(S.tool); hint(); renderPalette();
+}
+
+/* ---------- Kontroller ---------- */
+let buildT = 0; const rebuild = () => { clearTimeout(buildT); buildT = setTimeout(build, 120); };
+$('#fImg').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try { img = await SL.loadImage(f); srcBlob = f; $('#srcThumb').src = img.src; $('#srcThumb').hidden = false; build(); $('#patCard').scrollIntoView({behavior: 'smooth'}); }
+  catch (er) { SL.toast('Billedet kunne ikke åbnes. Prøv et JPG- eller PNG-billede.'); }
+};
+$('#bBlank').onclick = () => {
+  img = null; srcBlob = null; $('#srcThumb').hidden = true;
+  const w = S.mode === 'perler' && S.board !== 'free' ? +S.board : S.mode === 'pixel' ? Math.min(S.w, 32) : S.w;
+  const pal = S.mode === 'perler' ? ['H18', 'H01', 'H05', 'H03', 'H09', 'H10'].map(c => Object.assign({keep: true}, HAMA.find(h => h.code === c)))
+    : ['#1d1d22', '#ffffff', '#e0403a', '#f2c230', '#2f6fd8', '#33a65a'].map((hex, i) => ({hex, name: 'Farve ' + (i + 1), code: '', keep: true}));
+  P = {w, h: w, cells: new Int16Array(w*w).fill(-1), pal}; tidy(); undo = []; cur = 0; setTool('paint'); draw(); save();
+};
+$$('[data-m]').forEach(b => b.onclick = () => {
+  S.mode = b.dataset.m; if (S.mode === 'pixel' && S.w > 64) S.w = 32;
+  syncUI(); if (img) rebuild(); else if (P) { draw(); save(); }
+});
+$$('[data-b]').forEach(b => b.onclick = () => { S.board = b.dataset.b; syncUI(); rebuild(); });
+$('#rW').oninput = e => { S.w = +e.target.value; $('#oW').textContent = S.w; rebuild(); };
+$('#rN').oninput = e => { S.n = +e.target.value; $('#oN').textContent = S.n; rebuild(); };
+$('#cDither').onclick = () => { S.dither = !S.dither; syncUI(); rebuild(); };
+$('#cSquare').onclick = () => { S.square = !S.square; syncUI(); rebuild(); };
+$('#rZ').oninput = e => { S.zoom = +e.target.value; draw(); save(); };
+
+/* Eksport */
+const base = () => (S.mode === 'perler' ? 'Perleplade' : S.mode === 'kors' ? 'Korssting' : 'Pixel art') + ' ' + SL.stamp();
+function chartCanvas(){
+  const cs = Math.max(12, Math.min(30, Math.floor(2400 / Math.max(P.w, P.h)))), pad = 40, cols = Math.max(1, Math.floor((P.w*cs + pad) / 260));
+  const rows = Math.ceil(P.pal.length / cols), lh = 34, W = P.w*cs + pad*2, H = P.h*cs + pad*2 + 60 + rows*lh;
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+  x.fillStyle = '#ffffff'; x.fillRect(0, 0, W, H);
+  paintChart(x, cs, pad, pad, {});
+  x.fillStyle = '#555'; x.font = '12px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  const step = S.mode === 'perler' ? 29 : 10;
+  for (let i = step; i < P.w; i += step) x.fillText(i, pad + i*cs, pad - 12);
+  x.textAlign = 'right'; for (let i = step; i < P.h; i += step) x.fillText(i, pad - 6, pad + i*cs);
+  let y0 = pad + P.h*cs + 36; x.textAlign = 'left'; x.fillStyle = '#111'; x.font = '700 16px system-ui, sans-serif';
+  x.fillText(`${P.w} × ${P.h} · ${P.pal.length} farver · ${P.cells.reduce((a, v) => a + (v >= 0), 0)} i alt`, pad, y0 - 14);
+  P.pal.forEach((p, i) => {
+    const cx = pad + (i % cols) * 260, cy = y0 + Math.floor(i / cols) * lh;
+    x.fillStyle = p.hex; x.fillRect(cx, cy, 24, 24); x.strokeStyle = '#0003'; x.strokeRect(cx + .5, cy + .5, 23, 23);
+    if (S.mode === 'kors') { x.fillStyle = lum(p.hex) > 140 ? '#111' : '#fff'; x.font = '700 15px system-ui'; x.textAlign = 'center'; x.fillText(p.sym, cx + 12, cy + 13); x.textAlign = 'left'; }
+    x.fillStyle = '#111'; x.font = '14px system-ui, sans-serif'; x.fillText(`${p.code ? p.code + ' ' : ''}${p.name} · ${p.count} stk.`, cx + 32, cy + 13);
+  });
+  return c;
+}
+$('#bChart').onclick = async () => { SL.saveFile(await SL.canvasBlob(chartCanvas(), 'image/png'), base() + '.png'); SL.toast('Mønsterark gemt'); };
+$('#bPixel').onclick = async () => {
+  const k = Math.max(1, Math.floor(1024 / Math.max(P.w, P.h))), c = document.createElement('canvas'); c.width = P.w*k; c.height = P.h*k; const x = c.getContext('2d');
+  for (let i = 0; i < P.cells.length; i++) if (P.cells[i] >= 0) { x.fillStyle = P.pal[P.cells[i]].hex; x.fillRect((i % P.w)*k, ((i / P.w) | 0)*k, k, k); }
+  SL.saveFile(await SL.canvasBlob(c, 'image/png'), base() + '.png'); SL.toast('Pixelbillede gemt');
+};
+$('#bSporlys').onclick = async () => {
+  const ok = await SL.sendToSporlys(await SL.canvasBlob(chartCanvas(), 'image/png'), base());
+  SL.toast(ok ? 'Mønstret ligger nu under Mine billeder i Sporlys.' : 'Mønstret kunne ikke gemmes i Sporlys.');
+};
+
+restore();
+})();
+</script>
+</body>
+</html>
