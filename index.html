@@ -149,6 +149,19 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px}
           <div class="tiles" id="gallery"></div>
           <p class="hint" id="galStatus" aria-live="polite"></p>
         </div>
+        <div id="mineWrap" class="field" hidden>
+          <div class="label">Guides tegnet af Claude</div>
+          <div class="tiles" id="mine"></div>
+          <div><button class="chip" id="gDel" hidden>Slet guide</button></div>
+        </div>
+        <div class="field">
+          <div class="label">Indbyggede motiver</div>
+          <div class="tiles" id="tiles"></div>
+        </div>
+        <input type="file" id="file" accept="image/*,.zip,application/zip" multiple hidden>
+      </div>
+
+      <div class="pane" id="pJuster" hidden>
         <div id="photoOpts" hidden class="field" style="gap:12px">
           <div class="label">Valgt billede</div>
           <div class="chips" id="viewChips" role="group" aria-label="Visning af billedet">
@@ -171,19 +184,6 @@ input[type=range]{width:100%;accent-color:var(--accent);height:28px}
           </div>
           <p class="hint" id="gStatus" aria-live="polite"></p>
         </div>
-        <div id="mineWrap" class="field" hidden>
-          <div class="label">Guides tegnet af Claude</div>
-          <div class="tiles" id="mine"></div>
-          <div><button class="chip" id="gDel" hidden>Slet guide</button></div>
-        </div>
-        <div class="field">
-          <div class="label">Indbyggede motiver</div>
-          <div class="tiles" id="tiles"></div>
-        </div>
-        <input type="file" id="file" accept="image/*,.zip,application/zip" multiple hidden>
-      </div>
-
-      <div class="pane" id="pJuster" hidden>
         <div class="field">
           <div class="top"><span>Synlighed</span><output id="oOpacity">60 %</output></div>
           <input type="range" id="rOpacity" min="5" max="100" value="60">
